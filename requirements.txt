@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SLR Automation Tool — Python Dependencies  (V2)
+# Install: pip install -r requirements.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── GUI ───────────────────────────────────────────────────────────────────────
+ttkthemes>=3.2.0            # Modern ttk widget themes (optional; falls back to clam)
+
+# ── PDF Extraction ────────────────────────────────────────────────────────────
+pymupdf4llm>=0.0.4          # PRIMARY: PDF → Markdown (preserves reading order, tables, multi-column)
+pdfplumber>=0.10.0          # FALLBACK 1: multi-column aware plain-text extractor
+PyPDF2>=3.0.0               # FALLBACK 2: basic PDF text extractor
+
+# ── Structured Output / Anti-hallucination ────────────────────────────────────
+pydantic>=2.7.0             # Dynamic JSON schema generation (Quote-Then-Answer models)
+instructor>=1.2.0           # Schema-enforced LLM output with auto-retry on malformed JSON
+
+# ── Reference Ingestion (PRISMA Phase 2 & 3) ─────────────────────────────────
+rispy>=0.9.0                # RIS file parser (PubMed / Scopus / Web of Science exports)
+bibtexparser>=1.4.0         # BibTeX (.bib) file parser
+thefuzz[speedup]>=0.22.0    # Fuzzy title matching for duplicate detection (python-Levenshtein accelerates)
+pandas>=2.0.0               # CSV ingestion and tabular data handling
+
+# ── Excel Output ──────────────────────────────────────────────────────────────
+openpyxl>=3.1.0             # Excel (.xlsx) read/write with color coding
+
+# ── LLM Providers (install only what you need) ────────────────────────────────
+
+# OpenAI  (gpt-4o, gpt-4o-mini, gpt-4-turbo, o1, etc.)
+# Also used by instructor for structured outputs
+openai>=1.40.0
+
+# Anthropic Claude  (claude-3-5-sonnet, claude-3-5-haiku, claude-opus-4-5)
+anthropic>=0.34.0
+
+# DeepSeek  (deepseek-chat, deepseek-reasoner)
+# Uses the OpenAI-compatible API — covered by openai package above.
+# No extra install required; just set your DeepSeek API key and base URL.
+
+# Mistral AI  (mistral-large, mistral-small, codestral, etc.)
+mistralai>=1.0.0
+
+# Google Gemini  (gemini-2.0-flash, gemini-1.5-pro, etc.)
+google-generativeai>=0.8.0
+
+# Ollama  (local: llama3.2, qwen, phi3, mistral, etc.)
+# No pip package required — Ollama runs as a local server.
+# Download from: https://ollama.com/download
+# Pull a model: ollama pull llama3.2

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>404 — FILE NOT FOUND</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    .error-page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      background: var(--bg);
+    }
+    .error-page h1 {
+      font-family: var(--font-pixel);
+      font-size: 5rem;
+      color: var(--red);
+      text-shadow: 0 0 30px var(--red-glow), 0 0 60px var(--red-glow);
+      margin-bottom: 0.5rem;
+    }
+    .error-page h2 {
+      color: var(--cyan);
+      text-shadow: 0 0 10px var(--cyan-glow);
+      margin-bottom: 1rem;
+      font-size: 1.5rem;
+    }
+    .error-page p {
+      color: var(--white-dim);
+      margin-bottom: 2rem;
+      max-width: 480px;
+    }
+    .error-page pre {
+      color: var(--green);
+      font-family: var(--font);
+      font-size: 1.1rem;
+      text-shadow: 0 0 4px var(--green-glow);
+      margin-bottom: 2rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="error-page">
+    <h1>404</h1>
+    <h2>&lt; FILE NOT FOUND /&gt;</h2>
+    <pre>
+ERROR: The requested resource does not exist.
+REASON: Bad pointer or expired link.
+STATUS: ABORT_RETRY_FAIL?
+    </pre>
+    <a href="/" class="btn btn-primary btn-lg">&gt; RETURN_HOME</a>
+  </div>
+</body>
+</html>

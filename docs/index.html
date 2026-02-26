@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLR Automation Tool — Systematic Literature Reviews with AI</title>
+  <meta name="description" content="Free, open-source tool that automates systematic literature reviews using AI. Supports 9 providers including free local models. Built by Mo Anisi for students, researchers &amp; professors." />
+  <meta name="keywords" content="systematic literature review, SLR, automation, AI, LLM, research tool, open source, PRISMA, Mo Anisi" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="SLR Automation Tool by Mo Anisi" />
+  <meta property="og:description" content="Automate systematic literature reviews with AI — 9 providers, free local models, reference ingestion, screening &amp; extraction. By Mo Anisi." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://slr-automation.github.io/og-preview.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>" />
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Google Fonts — retro monospace + pixel -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Space+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+</head>
+<body>
+<a href="#main" class="skip-link">Skip to main content</a>
+<div id="aria-live-region" class="sr-only" aria-live="polite"></div>
+
+<!-- CRT Scanline overlay -->
+<div class="scanlines" aria-hidden="true"></div>
+<!-- CRT flicker overlay -->
+<div class="crt-flicker" aria-hidden="true"></div>
+
+<!-- ========================================================== -->
+<!--  NAV                                                        -->
+<!-- ========================================================== -->
+<nav class="navbar" id="navbar">
+  <div class="container nav-inner">
+    <a href="#" class="logo">
+      <span class="logo-icon">&gt;_</span> SLR_AUTO
+    </a>
+    <button class="nav-toggle" aria-label="Toggle navigation" id="navToggle">
+      <span></span><span></span><span></span>
+    </button>
+    <ul class="nav-links">
+      <li><a href="#features">[FEATURES]</a></li>
+      <li><a href="#providers">[PROVIDERS]</a></li>
+      <li><a href="#workflow">[WORKFLOW]</a></li>
+      <li><a href="#install">[INSTALL]</a></li>
+      <li><a href="#faq">[FAQ]</a></li>
+      <li><a href="#disclaimer">[DISCLAIMER]</a></li>
+      <li><a href="#download" class="btn btn-sm btn-primary">&gt; DOWNLOAD</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ========================================================== -->
+<!--  HERO                                                       -->
+<!-- ========================================================== -->
+<header class="hero" id="hero">
+  <div class="container hero-inner">
+    <div class="hero-text">
+      <div class="ascii-border">╔══════════════════════════════════════════════════╗</div>
+      <span class="badge blink-slow">[ v3.2.0 // OPEN SOURCE // FREE ]</span>
+      <h1 class="glitch" data-text="AUTOMATE YOUR LITERATURE REVIEW">AUTOMATE YOUR<br>LITERATURE REVIEW</h1>
+      <p class="hero-sub">
+        <span class="typed-prefix">&gt;</span> Import references. Deduplicate. Screen abstracts.<br>
+        <span class="typed-prefix">&gt;</span> Process PDFs. Extract structured data.<br>
+        <span class="typed-prefix">&gt;</span> 9 AI providers. Free local models included.<br>
+        <span class="typed-prefix">&gt;</span> One tool. Zero hassle.<span class="cursor">█</span>
+      </p>
+      <div class="hero-actions">
+        <a href="#download" class="btn btn-primary btn-lg">&gt; DOWNLOAD_FREE</a>
+        <a href="#workflow" class="btn btn-outline btn-lg">&gt; HOW_IT_WORKS</a>
+      </div>
+      <p class="hero-note">SYS: Windows // macOS // Linux &nbsp;&bull;&nbsp; REQ: Python 3.10+ &nbsp;&bull;&nbsp; LIC: MIT</p>
+      <div class="ascii-border">╚══════════════════════════════════════════════════╝</div>
+    </div>
+    <div class="hero-visual">
+      <div class="terminal-window">
+        <div class="terminal-bar">
+          <span class="terminal-title">user@research:~$</span>
+          <span class="terminal-dots">■ ■ ■</span>
+        </div>
+        <div class="terminal-body">
+          <div class="term-line"><span class="term-prompt">$</span> python slr_gui.py</div>
+          <div class="term-line dim">[BOOT] Loading modules...</div>
+          <div class="term-line success">[  OK  ] 9 AI providers available</div>
+          <div class="term-line success">[  OK  ] Reference ingestion ready</div>
+          <div class="term-line success">[  OK  ] PDF processing engine loaded</div>
+          <div class="term-line"><span class="term-prompt">&gt;</span> Processing 247 PDFs...</div>
+          <div class="term-line"><span class="progress-bar"><span class="progress-fill"></span></span> <span class="blink-cursor">100%</span></div>
+          <div class="term-line success">[  OK  ] 52 papers included</div>
+          <div class="term-line success">[  OK  ] Data extracted → results.xlsx</div>
+          <div class="term-line dim">[DONE] Elapsed: 18m 03s</div>
+          <div class="term-line"><span class="term-prompt">$</span> <span class="cursor">█</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ========================================================== -->
+<!--  STATS BAR                                                  -->
+<!-- ========================================================== -->
+<section class="stats-bar">
+  <div class="container stats-inner">
+    <div class="stat">
+      <span class="stat-num neon-cyan">009</span>
+      <span class="stat-label">AI_PROVIDERS</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num neon-pink">005</span>
+      <span class="stat-label">TEMPLATES</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num neon-green">003</span>
+      <span class="stat-label">IMPORT_FMT</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num neon-yellow">INF</span>
+      <span class="stat-label">CUSTOMISE</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  FEATURES                                                   -->
+<!-- ========================================================== -->
+<section class="features" id="features">
+  <div class="container">
+    <h2 class="section-title">&lt; SYSTEM CAPABILITIES /&gt;</h2>
+    <p class="section-sub">// Full PRISMA workflow coverage — from import to extraction table</p>
+
+    <div class="feature-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">&gt;&gt;</div>
+        <h3>REFERENCE INGESTION</h3>
+        <p>Import RIS, BibTeX, or CSV exports from PubMed, Scopus, Web of Science. Auto field normalisation.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">??</div>
+        <h3>SMART DEDUP</h3>
+        <p>Exact DOI matching + fuzzy title comparison (≥90% Levenshtein). No duplicates survive.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">AB</div>
+        <h3>ABSTRACT SCREENING</h3>
+        <p>AI screens titles &amp; abstracts before any PDF download — hours of triage eliminated.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">PDF</div>
+        <h3>PDF PROCESSING</h3>
+        <p>3-engine cascade: pymupdf4llm → pdfplumber → PyPDF2. Handles virtually any PDF.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">!!</div>
+        <h3>ANTI-HALLUCINATION</h3>
+        <p>Pydantic + instructor + Quote-Then-Answer. The AI cites real text, not fabrications.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">2X</div>
+        <h3>TWO-STAGE SCREEN</h3>
+        <p>Stage 1: fast include/exclude. Stage 2: detailed criteria. Mirrors manual PRISMA.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">//</div>
+        <h3>PARALLEL PROC</h3>
+        <p>Multiple PDFs simultaneously. Configurable threads. Smart caching avoids reprocessing.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">XL</div>
+        <h3>RICH OUTPUT</h3>
+        <p>Colour-coded Excel, CSV exports, summary reports — ready for your results chapter.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">**</div>
+        <h3>FULLY CUSTOM</h3>
+        <p>Your criteria. Your fields. Or pick from 5 built-in domain templates. Total control.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  PROVIDERS                                                  -->
+<!-- ========================================================== -->
+<section class="providers" id="providers">
+  <div class="container">
+    <h2 class="section-title">&lt; AI PROVIDER DATABASE /&gt;</h2>
+    <p class="section-sub">// Cloud API or local model — your call, commander</p>
+
+    <div class="provider-table-wrap">
+      <table class="provider-table">
+        <thead>
+          <tr>
+            <th>PROVIDER</th>
+            <th>COST</th>
+            <th>REC_MODEL</th>
+            <th>BEST_FOR</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Ollama</strong></td>
+            <td><span class="badge-green">[FREE]</span></td>
+            <td>llama3 / mistral</td>
+            <td>Large projects, privacy, offline</td>
+          </tr>
+          <tr>
+            <td><strong>Google Gemini</strong></td>
+            <td><span class="badge-green">[FREE]</span></td>
+            <td>gemini-2.5-flash</td>
+            <td>Fast cloud, generous limits</td>
+          </tr>
+          <tr>
+            <td><strong>DeepSeek</strong></td>
+            <td><span class="badge-green">[FREE]</span></td>
+            <td>deepseek-chat</td>
+            <td>Budget-friendly quality</td>
+          </tr>
+          <tr>
+            <td><strong>Kimi (Moonshot)</strong></td>
+            <td><span class="badge-green">[FREE]</span></td>
+            <td>moonshot-v1-auto</td>
+            <td>Long-context cloud AI</td>
+          </tr>
+          <tr>
+            <td><strong>Mistral</strong></td>
+            <td><span class="badge-green">[FREE]</span></td>
+            <td>mistral-large-latest</td>
+            <td>EU data residency</td>
+          </tr>
+          <tr>
+            <td><strong>OpenAI</strong></td>
+            <td><span class="badge-yellow">[TRIAL]</span></td>
+            <td>gpt-4o-mini</td>
+            <td>Best cost/quality ratio</td>
+          </tr>
+          <tr>
+            <td><strong>Anthropic</strong></td>
+            <td><span class="badge-red">[PAID]</span></td>
+            <td>claude-sonnet-4</td>
+            <td>Highest reasoning quality</td>
+          </tr>
+          <tr>
+            <td><strong>Grok (xAI)</strong></td>
+            <td><span class="badge-red">[PAID]</span></td>
+            <td>grok-3-mini-fast</td>
+            <td>Real-time knowledge</td>
+          </tr>
+          <tr>
+            <td><strong>Custom API</strong></td>
+            <td><span class="badge-yellow">[VARY]</span></td>
+            <td>Any OpenAI-compat</td>
+            <td>LM Studio, vLLM, LocalAI</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="provider-note">
+      &gt; NO API KEY? Start with <strong>Ollama</strong> — 100% free, runs on your machine.
+      Get it at <a href="https://ollama.ai" target="_blank" rel="noopener">ollama.ai</a>
+    </p>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  WORKFLOW                                                   -->
+<!-- ========================================================== -->
+<section class="workflow" id="workflow">
+  <div class="container">
+    <h2 class="section-title">&lt; EXECUTION PIPELINE /&gt;</h2>
+    <p class="section-sub">// 4 steps from raw references to finished data</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">[01]</div>
+        <div class="step-content">
+          <h3>IMPORT &amp; DEDUPLICATE</h3>
+          <p>Load RIS/BibTeX/CSV exports. Auto-normalise fields. Remove dupes via DOI + fuzzy title matching.</p>
+        </div>
+      </div>
+      <div class="step-connector">│</div>
+      <div class="step">
+        <div class="step-num">[02]</div>
+        <div class="step-content">
+          <h3>SCREEN ABSTRACTS</h3>
+          <p>AI evaluates each title &amp; abstract against your criteria → Include / Exclude / Maybe. No PDFs needed yet.</p>
+        </div>
+      </div>
+      <div class="step-connector">│</div>
+      <div class="step">
+        <div class="step-num">[03]</div>
+        <div class="step-content">
+          <h3>PROCESS FULL-TEXT</h3>
+          <p>Drop PDFs into a folder. 3-engine text extraction + two-stage screening + parallel processing + caching.</p>
+        </div>
+      </div>
+      <div class="step-connector">│</div>
+      <div class="step">
+        <div class="step-num">[04]</div>
+        <div class="step-content">
+          <h3>EXTRACT &amp; EXPORT</h3>
+          <p>AI extracts your specified data fields into colour-coded Excel. Copy-paste into your SLR chapter. Done.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  DOMAIN TEMPLATES                                           -->
+<!-- ========================================================== -->
+<section class="templates" id="templates">
+  <div class="container">
+    <h2 class="section-title">&lt; TEMPLATE LIBRARY /&gt;</h2>
+    <p class="section-sub">// Pre-configured criteria for common research domains</p>
+
+    <div class="template-grid">
+      <div class="template-card">
+        <span class="template-icon">[SLR]</span>
+        <h4>GENERIC</h4>
+        <p>Any research field</p>
+      </div>
+      <div class="template-card">
+        <span class="template-icon">[MED]</span>
+        <h4>MEDICAL</h4>
+        <p>RCTs, PICO, cohorts</p>
+      </div>
+      <div class="template-card">
+        <span class="template-icon">[EDU]</span>
+        <h4>EDUCATION</h4>
+        <p>Pedagogy, outcomes</p>
+      </div>
+      <div class="template-card">
+        <span class="template-icon">[ENV]</span>
+        <h4>ENVIRON</h4>
+        <p>Climate, ecology</p>
+      </div>
+      <div class="template-card">
+        <span class="template-icon">[TEC]</span>
+        <h4>TECH / CS</h4>
+        <p>Algorithms, benchmarks</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  INSTALL                                                    -->
+<!-- ========================================================== -->
+<section class="install" id="install">
+  <div class="container">
+    <h2 class="section-title">&lt; INSTALLATION /&gt;</h2>
+    <p class="section-sub">// Boot up in under 2 minutes</p>
+
+    <div class="install-tabs">
+      <button class="tab-btn active" data-tab="windows" onclick="switchTab('windows')">[WIN]</button>
+      <button class="tab-btn" data-tab="macos" onclick="switchTab('macos')">[MAC/LIN]</button>
+      <button class="tab-btn" data-tab="manual" onclick="switchTab('manual')">[MANUAL]</button>
+    </div>
+
+    <div class="tab-content active" id="tab-windows">
+      <div class="code-block">
+        <div class="code-header">
+          <span>C:\USERS\YOU&gt;</span>
+          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+        </div>
+<pre><code><span class="comment">REM 1. Download or clone the repository</span>
+git clone https://github.com/sadeghanisi/SLR.git
+cd SLR
+
+<span class="comment">REM 2. One-click setup (creates venv + installs all)</span>
+setup.bat
+
+<span class="comment">REM 3. Launch</span>
+launch_gui.bat</code></pre>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-macos">
+      <div class="code-block">
+        <div class="code-header">
+          <span>user@mac:~$</span>
+          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+        </div>
+<pre><code><span class="comment"># 1. Download or clone the repository</span>
+git clone https://github.com/sadeghanisi/SLR.git
+cd SLR
+
+<span class="comment"># 2. Create venv &amp; install</span>
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+<span class="comment"># 3. Launch</span>
+python slr_gui.py</code></pre>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-manual">
+      <div class="code-block">
+        <div class="code-header">
+          <span>ANY_OS&gt;</span>
+          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+        </div>
+<pre><code><span class="comment"># Requires Python 3.10+</span>
+python -m venv .venv
+
+<span class="comment"># Activate</span>
+.venv\Scripts\activate        <span class="comment"># Windows</span>
+source .venv/bin/activate     <span class="comment"># macOS / Linux</span>
+
+<span class="comment"># Install deps</span>
+pip install -r requirements.txt
+
+<span class="comment"># Run</span>
+python slr_gui.py</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  USE CASE                                                   -->
+<!-- ========================================================== -->
+<section class="use-case">
+  <div class="container">
+    <div class="use-case-card">
+      <pre class="ascii-art">
+╔════════════════════════════════════════════════════════════╗
+║                  BUILT FOR REAL RESEARCH                   ║
+╠════════════════════════════════════════════════════════════╣
+║                                                            ║
+║  PhD students processing 500 papers for a dissertation     ║
+║  Professors supervising multiple systematic reviews        ║
+║  Research teams running large-scale evidence synthesis     ║
+║                                                            ║
+║  &gt;&gt; Weeks of manual screening → Hours of automation &lt;&lt;     ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+      </pre>
+      <div class="use-case-stats">
+        <div>
+          <strong>247 PDFs</strong>
+          <span>~18 min runtime</span>
+        </div>
+        <div>
+          <strong>90%+ ACC</strong>
+          <span>Anti-hallucination</span>
+        </div>
+        <div>
+          <strong>$0 COST</strong>
+          <span>Ollama (local)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  FAQ                                                       -->
+<!-- ========================================================== -->
+<section class="faq" id="faq">
+  <div class="container">
+    <h2 class="section-title">&lt; FAQ.TXT /&gt;</h2>
+
+    <div class="faq-list">
+
+      <details class="faq-item">
+        <summary><span>&gt; Is this tool really free?</span></summary>
+        <p>YES. The tool = 100% free, open source (MIT License). Cloud AI providers may charge for API usage — but Ollama runs locally at $0.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; Do I need to know how to code?</span></summary>
+        <p>NO. Graphical interface — click buttons, select options, browse files. Zero command-line knowledge needed after initial setup.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; What is an LLM / API key?</span></summary>
+        <p>LLM = Large Language Model (the AI that reads papers, like ChatGPT). API key = password letting the tool talk to the AI service. Sign up with any provider to get one. See the <a href="https://github.com/sadeghanisi/SLR/blob/main/COMPLETE_USER_GUIDE.md">COMPLETE_USER_GUIDE.md</a>.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; Which AI provider should I choose?</span></summary>
+        <p>FREE + PRIVATE → Ollama. FREE CLOUD → DeepSeek / Gemini. BEST QUALITY → GPT-4o-mini or Claude Sonnet.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; How accurate is the screening?</span></summary>
+        <p>85–95% on abstract screening, higher on full-text. Quote-Then-Answer forces AI to cite actual paper text → minimal hallucination.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; Can I use this for my thesis?</span></summary>
+        <p>AFFIRMATIVE. Follows PRISMA framework. Do a final manual check of edge cases, mention the tool in your methods section.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; What file formats are supported?</span></summary>
+        <p>INPUT: RIS, BibTeX (.bib), CSV, PDF &bull; OUTPUT: Excel (.xlsx) colour-coded, CSV, plain-text summary reports.</p>
+      </details>
+
+      <details class="faq-item">
+        <summary><span>&gt; Does my data leave my computer?</span></summary>
+        <p>Cloud provider → paper text sent to their API. Ollama (local) → everything stays on your machine. We receive ZERO data. Ever.</p>
+      </details>
+
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  AUTHOR                                                    -->
+<!-- ========================================================== -->
+<section class="author-section" id="author" style="padding:48px 0;background:rgba(0,0,0,0.4);border-top:1px solid #333;">
+  <div class="container" style="text-align:center;">
+    <h2 class="section-title">&lt; DEVELOPER /&gt;</h2>
+    <p style="font-size:1.1rem;margin:8px 0 4px;color:#e0e0e0;">
+      <strong style="color:#00ff9f;">Mo Anisi</strong>
+    </p>
+    <div style="margin-top:14px;display:flex;justify-content:center;gap:16px;flex-wrap:wrap;">
+      <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener"
+         class="btn btn-outline btn-sm" style="border-color:#0077b5;color:#0077b5;">
+        &gt; LINKEDIN
+      </a>
+      <a href="https://github.com/sadeghanisi/SLR" target="_blank" rel="noopener"
+         class="btn btn-outline btn-sm">
+        &gt; GITHUB
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  DISCLAIMER                                                -->
+<!-- ========================================================== -->
+<section class="disclaimer-section" id="disclaimer" style="padding:48px 0;background:#0d0d0d;border-top:1px solid #ff4444;">
+  <div class="container">
+    <h2 class="section-title" style="color:#ff4444;">&lt; DISCLAIMER.TXT /&gt;</h2>
+    <div style="border:1px solid #ff4444;padding:24px;border-radius:4px;max-width:860px;margin:0 auto;font-size:0.88rem;line-height:1.75;color:#ccc;">
+      <p><strong style="color:#ff6666;">&gt; &quot;As Is&quot; Provision:</strong>
+      This software is provided &quot;as is,&quot; without warranty of any kind, express or implied.
+      The authors and distributors accept no responsibility for decisions made based on AI-generated screening or extraction results.</p>
+
+      <p><strong style="color:#ff6666;">&gt; AI Limitations:</strong>
+      This tool assists with &mdash; but does not replace &mdash; human judgment. AI models can and do make errors,
+      including incorrect inclusion/exclusion decisions and inaccurate data extraction. All AI outputs must be independently
+      verified by qualified researchers before use in any publication, thesis, clinical decision, or policy document.</p>
+
+      <p><strong style="color:#ff6666;">&gt; No Academic Guarantee:</strong>
+      Use of this tool does not ensure compliance with PRISMA, CONSORT, or any other reporting standard.
+      Researchers remain solely responsible for the methodological integrity, transparency, and accuracy of their systematic reviews.</p>
+
+      <p><strong style="color:#ff6666;">&gt; Data Privacy:</strong>
+      When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, or others), your paper content is
+      transmitted to third-party servers. The authors of this tool make no representations regarding how those providers
+      store, process, or use your data. Consult each provider&rsquo;s privacy policy before processing sensitive or unpublished
+      material. <strong>For confidential data, use the local Ollama option.</strong></p>
+
+      <p><strong style="color:#ff6666;">&gt; Cost and Billing:</strong>
+      API usage fees are charged directly by third-party AI providers. The authors of this tool have no visibility into,
+      or responsibility for, charges incurred through your API account. Monitor your usage and set billing limits with
+      your provider before running large processing jobs.</p>
+
+      <p><strong style="color:#ff6666;">&gt; Institutional Compliance:</strong>
+      It is your responsibility to verify that AI-assisted research methods comply with your institution&rsquo;s policies,
+      your funding body&rsquo;s requirements, and the ethical standards of your field. Disclose AI tool usage in all relevant
+      sections of your research output.</p>
+
+      <p><strong style="color:#ff6666;">&gt; No Liability:</strong>
+      To the fullest extent permitted by law, the authors, contributors, and distributors of this tool shall not be liable
+      for any direct, indirect, incidental, or consequential damages arising from its use, including but not limited to
+      data loss, incorrect research conclusions, academic penalties, or financial charges.</p>
+
+      <p style="margin-top:16px;color:#888;font-style:italic;border-top:1px solid #333;padding-top:12px;">
+        By using this tool, you acknowledge that you have read, understood, and accepted these terms.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  CTA / DOWNLOAD                                            -->
+<!-- ========================================================== -->
+<section class="cta" id="download">
+  <div class="container cta-inner">
+    <pre class="ascii-art-sm">
+┌─────────────────────────────────────────────┐
+│   READY TO AUTOMATE YOUR LIT REVIEW?        │
+│   Download → Setup (2 min) → Process.       │
+└─────────────────────────────────────────────┘
+    </pre>
+    <div class="cta-actions">
+      <a href="https://github.com/sadeghanisi/SLR/archive/refs/heads/main.zip" class="btn btn-primary btn-lg">
+        &gt; DOWNLOAD.ZIP
+      </a>
+      <a href="https://github.com/sadeghanisi/SLR" class="btn btn-outline btn-lg" target="_blank" rel="noopener">
+        &gt; VIEW_ON_GITHUB
+      </a>
+    </div>
+    <p class="cta-sub">
+      v3.2.0 &bull; MIT License &bull; Python 3.10+ &bull; WIN / MAC / LINUX
+    </p>
+  </div>
+</section>
+
+<!-- ========================================================== -->
+<!--  FOOTER                                                    -->
+<!-- ========================================================== -->
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-left">
+      <span class="logo-icon">&gt;_</span> <strong>SLR_AUTOMATION</strong> v3.2.0
+      <p>&copy; 2025&ndash;2026 <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" style="color:inherit;">Mo Anisi</a> // MIT License // All systems nominal</p>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/sadeghanisi/SLR" target="_blank" rel="noopener">[GITHUB]</a>
+      <a href="https://github.com/sadeghanisi/SLR/blob/main/COMPLETE_USER_GUIDE.md" target="_blank" rel="noopener">[GUIDE]</a>
+      <a href="https://github.com/sadeghanisi/SLR/issues" target="_blank" rel="noopener">[ISSUES]</a>
+      <a href="https://github.com/sadeghanisi/SLR/blob/main/LICENSE" target="_blank" rel="noopener">[LICENSE]</a>
+      <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener">[LINKEDIN]</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ========================================================== -->
+<!--  SCRIPTS                                                   -->
+<!-- ========================================================== -->
+<script>
+/* ---- Sticky nav & Mobile menu ---- */
+const navbar = document.getElementById('navbar');
+const navToggle = document.getElementById('navToggle');
+const navLinks = document.querySelector('.nav-links');
+
+window.addEventListener('scroll', () => {
+  navbar.classList.toggle('scrolled', window.scrollY > 60);
+});
+
+navToggle.addEventListener('click', () => {
+  navLinks.classList.toggle('open');
+  navToggle.classList.toggle('open');
+});
+
+// Close menu when clicking outside
+document.addEventListener('click', (e) => {
+  if (navLinks.classList.contains('open') && !e.target.closest('#navbar')) {
+    navLinks.classList.remove('open');
+    navToggle.classList.remove('open');
+  }
+});
+
+/* ---- Install tabs ---- */
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+/* ---- Copy code ---- */
+function copyCode(btn) {
+  const code = btn.closest('.code-block').querySelector('code').innerText;
+  
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(code).then(() => {
+      btn.textContent = '[OK!]';
+      setTimeout(() => btn.textContent = '[COPY]', 2000);
+    }).catch(err => {
+      console.error('Clipboard write failed:', err);
+      alert('Failed to copy. Please select the text and copy manually.');
+    });
+  } else {
+    // Fallback for file:// or HTTP
+    const textArea = document.createElement('textarea');
+    textArea.value = code;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      btn.textContent = '[OK!]';
+      setTimeout(() => btn.textContent = '[COPY]', 2000);
+    } catch (err) {
+      console.error('Fallback copy failed:', err);
+      alert('Failed to copy. Please select the text and copy manually.');
+    }
+    document.body.removeChild(textArea);
+  }
+}
+
+/* ---- Smooth scroll ---- */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const href = a.getAttribute('href');
+    
+    // Close mobile menu if open
+    if (navLinks && navLinks.classList.contains('open')) {
+      navLinks.classList.remove('open');
+      navToggle.classList.remove('open');
+    }
+
+    if (href === '#') {
+      e.preventDefault();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    try {
+      const target = document.querySelector(href);
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } catch (_) { /* invalid selector */ }
+  });
+});
+
+/* Cursor blink is handled by CSS @keyframes blink-caret */
+</script>
+
+</body>
+</html>
