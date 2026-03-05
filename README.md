@@ -2,21 +2,22 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-3.2.0-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
+[![Version](https://img.shields.io/badge/version-3.3.0-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-yellow?style=for-the-badge&logo=python)](https://python.org)
 [![Providers](https://img.shields.io/badge/AI%20Providers-9-purple?style=for-the-badge)](#-ai-provider-quick-reference)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)](#-installation)
+[![WebApp](https://img.shields.io/badge/WebApp-v3.3.0-orange?style=for-the-badge)](#-web-application-new-in-v330)
 
 **Automate your systematic literature reviews with AI — from import to extraction table.**
 
-[🚀 Quick Start](#-quick-start) · [📖 Full Guide](COMPLETE_USER_GUIDE.md) · [🐛 Issues](https://github.com/sadeghanisi/SLR/issues) · [💡 Features](#-features)
+[🚀 Quick Start](#-quick-start) · [🌐 Web App](#-web-application-new-in-v330) · [📖 Full Guide](COMPLETE_USER_GUIDE.md) · [🐛 Issues](https://github.com/sadeghanisi/SLR/issues) · [💡 Features](#-features)
 
 </div>
 
 ---
 
-A powerful, open-source tool for automating systematic literature reviews (SLRs) with support for **9 AI providers**, reference ingestion, deduplication, two-stage screening, and structured data extraction.
+A powerful, open-source tool for automating systematic literature reviews (SLRs) with support for **9 AI providers**, reference ingestion, deduplication, two-stage screening, and structured data extraction. Available as both a **desktop GUI** and a **browser-based Web App**.
 
 > **New to this tool?** Read [COMPLETE_USER_GUIDE.md](COMPLETE_USER_GUIDE.md) for a beginner-friendly walkthrough (assumes no prior AI/LLM knowledge).
 
@@ -41,7 +42,7 @@ A powerful, open-source tool for automating systematic literature reviews (SLRs)
 - **Grok (xAI)** — Grok 3, Grok 3 Mini, Grok 2
 - **Ollama** — Any local model, completely free, no API key
 - **Custom** — Any OpenAI-compatible API (LM Studio, vLLM, LocalAI, etc.)
-- **User-defined models** — Add any model ID not yet in the built-in list via the “+” button
+- **User-defined models** — Type any model ID directly, including newly released models not yet in the built-in list
 
 ### 📥 Reference Ingestion & Deduplication
 - Import RIS (PubMed/Scopus/WoS), BibTeX, and CSV reference files
@@ -60,6 +61,52 @@ A powerful, open-source tool for automating systematic literature reviews (SLRs)
 - Specify exactly what data fields to extract
 - 5 built-in domain templates (Generic, Medical, Education, Environmental, Tech)
 - Advanced settings: temperature, max tokens, rate limits, chunk sizes
+- **AI-powered criteria enhancement** — use your own API key to improve criteria wording with one click
+
+---
+
+## 🌐 Web Application (New in v3.3.0)
+
+A complete browser-based interface for the SLR tool, located in the `WebApp/` directory. No desktop installation required for end users — just a running Python server.
+
+### Features unique to the Web App
+| Feature | Description |
+|---|---|
+| **4-stage pipeline UI** | Configure → Ingest → Process → Results — mirrors the PRISMA workflow |
+| **AI Enhance buttons** | One-click AI improvement for screening criteria, screening prompts, and extraction fields using your configured API key |
+| **PDF file manager** | Upload PDFs, view the list, open in browser, delete individually or clear all |
+| **Custom model input** | Override the model dropdown with any model ID (e.g. `gpt-4.5`, `claude-opus-4`, `llama3.3:70b`) |
+| **Real-time monitor** | Live progress, KPI counts, processing log streamed to the browser |
+| **Help & Guide drawer** | 9-topic in-app guide covering Quick Start, all stages, providers, cost guide, FAQ, and a detailed disclaimer |
+| **Interactive disclaimer** | Pre-publication checklist with interactive checkboxes |
+| **Auto-save settings** | Provider, API key, model, and criteria persist between sessions |
+| **PRISMA summary** | Identified → Screened → Included/Excluded counts displayed on the Results page |
+
+### Launch the Web App
+
+**Windows (one-click):**
+```bat
+REM From the WebApp directory:
+run.bat
+```
+
+**Manual (any OS):**
+```bash
+# Activate your virtual environment first:
+source .venv/bin/activate          # macOS / Linux
+.venv\Scripts\activate             # Windows
+
+cd WebApp
+python app.py
+```
+
+Then open **http://127.0.0.1:5000** in your browser.
+
+### Web App dependencies
+```bash
+pip install flask flask-cors
+# All other dependencies are shared with the main project (requirements.txt)
+```
 
 ---
 
@@ -89,9 +136,18 @@ pip install -r requirements.txt
 ```
 
 ### 2. Launch
+
+**Desktop GUI:**
 ```bash
 python slr_gui.py
 # Windows shortcut: double-click launch_gui.bat
+```
+
+**Web App (browser-based):**
+```bash
+cd WebApp
+python app.py
+# Then open http://127.0.0.1:5000
 ```
 
 ### 3. Configure AI Provider
@@ -99,11 +155,11 @@ python slr_gui.py
 - **Ollama (free):** install from [ollama.ai](https://ollama.ai), run `ollama serve`, pull a model (`ollama pull llama3`), select "Ollama (Local)" — no API key needed.
 
 ### 4. Ingest References *(optional)*
-- **Ingestion** tab → load your RIS/BIB/CSV export → Deduplicate → run abstract screening → export included records
+- **Ingestion** tab (GUI) or **Stage 2** (Web App) → load your RIS/BIB/CSV export → Deduplicate → run abstract screening → export included records
 
 ### 5. Process PDFs
-- **Setup** tab → select PDF folder + output folder → customise criteria (or use a template) → **Start Processing**
-- Monitor progress in the **Monitor** tab, view results in the **Results** tab
+- **Setup** tab (GUI) or **Stage 3** (Web App) → upload PDFs → customise criteria → **Start Processing**
+- Monitor progress live, view results, export to Excel
 
 ---
 
@@ -138,22 +194,32 @@ python slr_gui.py
 
 ```
 SLR/
-├── slr_gui.py                # Main GUI (Tkinter, 5 tabs)
+├── slr_gui.py                # Desktop GUI (Tkinter, 5 tabs)
 ├── housing_enhanced.py       # Core automation engine
 ├── llm_interface.py          # Universal LLM provider interface (9 providers)
 ├── ingestion.py              # Reference import, dedup & abstract screening
-├── prompt_editor.py          # Screening/extraction criteria editor
-├── advanced_config.py        # Advanced settings dialog
+├── prompt_editor.py          # Screening/extraction criteria editor (GUI)
+├── advanced_config.py        # Advanced settings dialog (GUI)
 ├── custom_models.json        # User-added model IDs (auto-created on first use)
 ├── test_tool.py              # Basic test suite
-├── requirements.txt          # All Python dependencies (pinned)
+├── requirements.txt          # Python dependencies
 ├── setup.bat                 # Windows one-click setup
 ├── install_dependencies.bat  # Alternative dependency installer
-├── launch_gui.bat            # Windows launcher
+├── launch_gui.bat            # Windows GUI launcher
 ├── COMPLETE_USER_GUIDE.md    # Detailed beginner-friendly guide
 ├── README.md                 # This file
 ├── LICENSE                   # MIT License
-└── docs/                     # GitHub Pages website
+├── docs/                     # GitHub Pages website
+└── WebApp/                   # Browser-based Web Application (v3.3.0)
+    ├── app.py                # Flask backend (19+ API routes)
+    ├── run.bat               # Windows one-click launcher
+    ├── requirements.txt      # Web app dependencies (Flask, flask-cors)
+    ├── templates/
+    │   └── index.html        # Single-page application
+    ├── static/
+    │   ├── css/style.css     # Academic research design system
+    │   └── js/app.js         # Frontend logic
+    └── uploads/              # Uploaded files (gitignored)
 ```
 
 ---
@@ -163,10 +229,11 @@ SLR/
 | Problem | Solution |
 |---|---|
 | "Failed to initialise LLM manager" | Check API key & internet; click **Test Connection** |
-| "Rate limit exceeded" | Increase rate-limit delay in Advanced Config; reduce workers |
+| "Rate limit exceeded" | Increase rate-limit delay; reduce Max Workers |
 | Ollama connection failed | Run `ollama serve`, verify `http://localhost:11434`, check `ollama list` |
 | Missing module error | Run `pip install -r requirements.txt` inside your venv |
-| Model not in dropdown | Type the model name directly, or use the **+** button to add it |
+| Web App: "No module named flask" | Run `pip install flask flask-cors` in your venv, or use `run.bat` |
+| Provider list not loading (Web App) | Hard-refresh browser (`Ctrl+Shift+R`); check the server terminal for errors |
 
 ---
 
@@ -177,6 +244,7 @@ Pull requests are welcome! Key extension points:
 - **New LLM provider** → [`llm_interface.py`](llm_interface.py) — subclass `LLMProvider`
 - **Domain template** → [`prompt_editor.py`](prompt_editor.py) — add to `TemplateSelector`
 - **GUI enhancement** → [`slr_gui.py`](slr_gui.py)
+- **Web App** → [`WebApp/app.py`](WebApp/app.py) and [`WebApp/static/`](WebApp/static/)
 - **Extraction logic** → [`housing_enhanced.py`](housing_enhanced.py)
 
 Please open an [issue](https://github.com/sadeghanisi/SLR/issues) before major changes.
@@ -185,14 +253,14 @@ Please open an [issue](https://github.com/sadeghanisi/SLR/issues) before major c
 
 ## 📜 License
 
-[MIT](LICENSE) — free to use, modify, and distribute.
+[MIT](LICENSE) — free to use, modify, and distribute with attribution.
 
 ---
 
 ## 🆘 Support
 
 1. Read the [Complete User Guide](COMPLETE_USER_GUIDE.md)
-2. Check the in-app **Help** tab (14+ topics)
+2. Check the in-app **Help** panel (Web App) or **Help** tab (GUI)
 3. Review logs in the output folder
 4. Run the test suite: `python test_tool.py`
 5. Open an [issue on GitHub](https://github.com/sadeghanisi/SLR/issues)
@@ -203,17 +271,17 @@ Please open an [issue](https://github.com/sadeghanisi/SLR/issues) before major c
 
 > **IMPORTANT — Please read before use.**
 
-**“As Is” Provision.** This software is provided "as is," without warranty of any kind, express or implied. The authors and distributors accept no responsibility for decisions made based on AI-generated screening or extraction results.
+**"As Is" Provision.** This software is provided "as is," without warranty of any kind, express or implied. The authors and distributors accept no responsibility for decisions made based on AI-generated screening or extraction results.
 
 **AI Limitations.** This tool assists with — but does not replace — human judgment. AI models can and do make errors, including incorrect inclusion/exclusion decisions and inaccurate data extraction. All AI outputs must be independently verified by qualified researchers before use in any publication, thesis, clinical decision, or policy document.
 
 **No Academic Guarantee.** Use of this tool does not ensure compliance with PRISMA, CONSORT, or any other reporting standard. Researchers remain solely responsible for the methodological integrity, transparency, and accuracy of their systematic reviews.
 
-**Data Privacy.** When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, or others), your paper content is transmitted to third-party servers. The authors of this tool make no representations regarding how those providers store, process, or use your data. Consult each provider’s privacy policy before processing sensitive or unpublished material. **For confidential data, use the local Ollama option.**
+**Data Privacy.** When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, or others), your paper content is transmitted to third-party servers. The authors of this tool make no representations regarding how those providers store, process, or use your data. Consult each provider's privacy policy before processing sensitive or unpublished material. **For confidential data, use the local Ollama option.**
 
 **Cost and Billing.** API usage fees are charged directly by third-party AI providers. The authors of this tool have no visibility into, or responsibility for, charges incurred through your API account. Monitor your usage and set billing limits with your provider before running large processing jobs.
 
-**Institutional Compliance.** It is your responsibility to verify that AI-assisted research methods comply with your institution’s policies, your funding body’s requirements, and the ethical standards of your field. Disclose AI tool usage in all relevant sections of your research output.
+**Institutional Compliance.** It is your responsibility to verify that AI-assisted research methods comply with your institution's policies, your funding body's requirements, and the ethical standards of your field. Disclose AI tool usage in all relevant sections of your research output.
 
 **No Liability.** To the fullest extent permitted by law, the authors, contributors, and distributors of this tool shall not be liable for any direct, indirect, incidental, or consequential damages arising from its use, including but not limited to data loss, incorrect research conclusions, academic penalties, or financial charges.
 

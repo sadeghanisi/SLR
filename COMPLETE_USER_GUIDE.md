@@ -26,6 +26,7 @@
 17. [Best Practices for Researchers](#17-best-practices-for-researchers)
 18. [Keyboard Shortcuts](#18-keyboard-shortcuts)
 19. [Glossary of Terms](#19-glossary-of-terms)
+20. [Web Application — Browser-Based Interface (v3.3.0)](#20-web-application--browser-based-interface-v330)
 
 ---
 
@@ -1159,6 +1160,194 @@ These shortcuts work when the application window is in focus:
 
 ---
 
-*This guide covers the tool's full functionality as of version 3.0. If you encounter a situation not covered here, check the built-in Help tab (❓) in the application, or review the Processing Log for detailed error messages.*
+*This guide covers the tool's full functionality as of version 3.2. For v3.3.0 Web App features, see Section 20 below.*
 
 *For systematic reviews, always consult your institution's research methods guidance and report AI-assisted screening transparently in your methods section.*
+
+---
+
+## 20. Web Application — Browser-Based Interface (v3.3.0)
+
+Starting with version 3.3.0, the SLR Automation Tool includes a complete **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI — everything runs in your browser, making it easier to use on any computer without configuring a GUI environment.
+
+### What Is Different About the Web App?
+
+| Feature | Desktop GUI | Web App |
+|---|---|---|
+| Interface | Tkinter window | Browser (any) |
+| Launch | `python slr_gui.py` | `python app.py` then open browser |
+| Workflow | Tab-based | 4-stage pipeline |
+| AI Enhance | — | ✅ One-click criteria improvement |
+| PDF Manager | Folder picker | Upload + list + view + delete |
+| Help | In-app Help tab | Slide-in guide drawer (9 topics) |
+| Settings persistence | JSON file | JSON file (auto-save) |
+| Multi-user | No | No (single-user server) |
+
+### 20.1 Launching the Web App
+
+**Step 1: Make sure Flask is installed**
+
+Flask is required for the web app. If you set up using `setup.bat` or the standard `requirements.txt`, it should already be installed. If not:
+```
+pip install flask flask-cors
+```
+
+**Step 2: Launch**
+
+*Windows (recommended):*
+- Navigate to the `WebApp` folder
+- Double-click `run.bat`
+
+*Any OS:*
+1. Open a terminal / command prompt
+2. Activate your virtual environment:
+   - Windows: `.venv\Scripts\activate`
+   - macOS/Linux: `source .venv/bin/activate`
+3. Navigate to the WebApp folder: `cd WebApp`
+4. Run: `python app.py`
+5. Open your browser and go to: **http://127.0.0.1:5000**
+
+You should see the SLR Automation web interface load in your browser. Keep the terminal window open — it is the server. Closing it will stop the app.
+
+### 20.2 The Four Stages
+
+The web app organises the full review workflow into four sequential stages, accessible by clicking the tabs at the top of the page.
+
+#### Stage 1 — Configure
+
+This is where you set up your AI connection.
+
+1. Select your **AI Provider** from the dropdown (9 options available).
+2. Paste your **API Key** from the provider's dashboard. The key is stored only on your own machine.
+3. Choose a **Model** from the list, or type a custom model ID in the text box below the dropdown (useful for newly released models not yet in the built-in list — e.g., `gpt-4.5`, `claude-opus-4`).
+4. For **Ollama** or **Custom** providers, also enter the **Base URL** (default for Ollama: `http://localhost:11434`).
+5. Click **Test Connection** to verify everything is working. A green indicator confirms success.
+
+Your settings (provider, key, model) are **saved automatically** between sessions.
+
+#### Stage 2 — Ingest & Screen
+
+This stage covers importing references and optional abstract screening.
+
+**Step A — Upload Reference File**
+
+Export your search results from an academic database and upload here. Supported formats:
+- `.ris` — from PubMed (NBIB → RIS format), Scopus, Web of Science, Embase
+- `.bib` — BibTeX from Web of Science, Mendeley, Zotero
+- `.csv` — from Scopus or Web of Science (must include Title and Abstract columns)
+
+Drag the file onto the upload zone, or click to browse.
+
+**Step B — Parse & Deduplicate**
+
+- **Parse File**: Extracts title, authors, year, abstract, DOI from the file. A chip shows how many records were found.
+- **Deduplicate**: Removes duplicates in two passes — exact DOI matches first, then fuzzy title matching (≥ 90% similarity). The chip shows how many were removed and how many unique records remain.
+
+**Step C — AI Abstract Screening (optional)**
+
+1. Write your **Screening Criteria** in the text area (inclusion and exclusion rules). Click **✦ Enhance** to have the AI improve and restructure your criteria automatically.
+2. Click **Screen Abstracts** to begin. The AI reads each abstract and returns a decision.
+3. You can stop and restart at any time. Results appear in the table below as they arrive.
+
+**Screening decisions:**
+- **Likely Include** — abstract meets your criteria
+- **Likely Exclude** — abstract does not meet criteria
+- **Flag for Review** — the AI is uncertain; you must decide manually
+
+#### Stage 3 — Full-Text Processing
+
+This stage processes complete PDF papers.
+
+**Upload PDFs**
+
+Drag PDF files onto the upload zone. After uploading, a **PDF file table** appears showing:
+- Filename and file size
+- **View** button — opens the PDF in a new browser tab
+- **Delete** button — removes a single file
+- **Add More** — upload additional files to the same batch
+- **Clear All** — removes all uploaded files
+
+**Processing Options**
+
+- **Parallel Processing**: Process multiple PDFs simultaneously (faster). Default: on.
+- **Max Workers**: Number of simultaneous processes (default: 3). Reduce to 1–2 if you see rate-limit errors.
+- **Rate Delay (s)**: Pause between papers (default: 1.0). Increase to 2–3 seconds for rate-sensitive providers.
+- **Two-Stage Screening**: Fast screen first, then extract only from included papers. Saves cost when many papers are expected to be excluded.
+- **Enable Caching**: Skips files already processed in a previous run. **Always keep this on.**
+
+**Screening Prompt & Extraction Fields**
+
+Both text areas have an **✦ Enhance** button that sends the current text to your AI and returns an improved, structured version. You can revert to the original text with one click.
+
+- **Screening Prompt**: Criteria for deciding whether each PDF should be included in the review.
+- **Extraction Fields**: One field name per line (e.g., `study_design`, `sample_size`, `key_findings`). The AI fills these in from each included paper.
+
+Click **Start Processing** to begin. The **Processing Monitor** shows live progress, counts by decision, files per minute, token usage, and a timestamped log.
+
+#### Stage 4 — Results & Export
+
+After processing, go to Stage 4 to review and export your results.
+
+**PRISMA Summary**
+
+Counts at the top: Identified → Screened → Included / Excluded, matching the standard PRISMA flow.
+
+**Screening Results Table**
+
+- Filter by decision type (Include / Exclude / Flag / Error)
+- Search by filename or reasoning text
+- Click any row to open the full AI reasoning in a detail panel
+- Export to `.xlsx` with one click
+
+**Extraction Results Table**
+
+Structured data extracted from included papers. Each column is one of your defined fields. Export to `.xlsx`.
+
+### 20.3 AI Enhance Feature
+
+Any text area for criteria writing has an **✦ Enhance** button in the top-right corner of its label row. Clicking it:
+
+1. Sends the current text to your configured AI provider
+2. Uses a detailed system prompt to restructure and improve the content:
+   - *Screening Criteria* → adds INCLUSION/EXCLUSION sections, PICO structure, precise language
+   - *Screening Prompt* → rewrites as AI evaluator instructions with a three-decision rule
+   - *Extraction Fields* → cleans to snake_case, adds standard SLR fields, organises logically
+3. Replaces the textarea content with the improved version
+4. Shows a **↩ Revert** bar so you can restore the original with one click
+
+This uses your already-configured API key — no extra setup needed.
+
+### 20.4 Help & Guide Drawer
+
+Click the **Guide** button in the top-right corner of the screen to open the in-app help drawer. It contains nine sections:
+
+1. **Quick Start** — 5-step walkthrough
+2. **AI Providers** — setup instructions for all 9 providers
+3. **1 · Configure** — every setting explained
+4. **2 · Ingest & Screen** — file formats, parse, dedup, screening decisions
+5. **3 · Full-Text Processing** — all processing options
+6. **4 · Results & Export** — understanding decisions, export formats
+7. **Writing Criteria** — examples for medical and education reviews, extraction fields
+8. **Cost Guide** — per-provider cost table, cost-saving tips
+9. **⚠ Disclaimer** — what the tool is and is not, researcher responsibilities, academic integrity, data privacy, MIT license text, and a pre-publication checklist
+
+### 20.5 Settings Persistence
+
+The web app automatically saves your configuration to `webapp_settings.json` in the `WebApp/` folder every time you change:
+- AI provider or model selection
+- Custom model ID
+- Base URL
+- Screening criteria
+
+These settings are restored the next time you load the page.
+
+> **Note:** `webapp_settings.json` contains your API key. The file is listed in `.gitignore` and will not be accidentally committed to a public repository, but treat it with the same care you would any file containing credentials.
+
+### 20.6 Important Limitations
+
+The web app is designed as a **single-user, local-server application**. It is not intended for deployment on a public web server because:
+- The in-memory session stores one user's state at a time
+- API keys are stored in plain text on disk
+- There is no authentication layer
+
+If you need to run the tool on a remote server for team use, consult a web developer to add appropriate security measures before exposing it to a network.

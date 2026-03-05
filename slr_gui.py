@@ -3,7 +3,7 @@ Universal Systematic / Scoping Review Automation — GUI
 Works for any academic research domain.
 """
 
-__version__ = "3.2.0"
+__version__ = "3.3.0"
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -81,7 +81,7 @@ class SLRAutomationGUI:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("SLR Automation Tool v3.2.0  —  by Mo Anisi")
+        self.root.title("SLR Automation Tool v3.3.0  —  by Mo Anisi")
         self.root.geometry("1150x800")
         self.root.minsize(950, 680)
 

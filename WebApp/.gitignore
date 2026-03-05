@@ -1,0 +1,12 @@
+# Runtime
+uploads/
+output/
+__pycache__/
+*.pyc
+
+# Settings with sensitive data
+webapp_settings.json
+
+# IDE
+.vscode/
+.idea/

@@ -7,7 +7,7 @@ All providers implement chat_completion_with_tokens() which returns
 (response_text: str, tokens_used: int) so cost tracking works everywhere.
 """
 
-__version__ = "3.2.0"
+__version__ = "3.3.0"
 
 import json
 import time

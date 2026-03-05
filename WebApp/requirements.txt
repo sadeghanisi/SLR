@@ -1,0 +1,20 @@
+# Web framework
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# All parent project deps (inherited)
+ttkthemes>=3.2.0
+pymupdf4llm>=0.0.4
+pdfplumber>=0.10.0
+PyPDF2>=3.0.0
+pydantic>=2.7.0
+instructor>=1.2.0
+rispy>=0.9.0
+bibtexparser>=1.4.0
+thefuzz[speedup]>=0.22.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+openai>=1.40.0
+anthropic>=0.34.0
+mistralai>=1.0.0
+google-generativeai>=0.8.0

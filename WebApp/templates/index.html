@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SLR Automation — Systematic Literature Review</title>
+  <meta name="description" content="AI-powered systematic literature review automation for researchers.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Top bar                                                            -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark">SLR</span>
+        <span class="brand-text">Systematic Review</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn-help-trigger" id="helpTrigger" title="Help & Guide">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Guide
+        </button>
+        <div class="connection-status" id="connStatus">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">Not connected</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Stage navigation — mirrors the PRISMA pipeline                     -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <nav class="stage-nav" id="stageNav">
+    <button class="stage-tab active" data-stage="configure">
+      <span class="stage-num">1</span>
+      <span class="stage-label">Configure</span>
+    </button>
+    <span class="stage-arrow">→</span>
+    <button class="stage-tab" data-stage="ingest">
+      <span class="stage-num">2</span>
+      <span class="stage-label">Ingest</span>
+    </button>
+    <span class="stage-arrow">→</span>
+    <button class="stage-tab" data-stage="process">
+      <span class="stage-num">3</span>
+      <span class="stage-label">Process</span>
+    </button>
+    <span class="stage-arrow">→</span>
+    <button class="stage-tab" data-stage="results">
+      <span class="stage-num">4</span>
+      <span class="stage-label">Results</span>
+    </button>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Main content area                                                  -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <main class="workspace">
+
+    <!-- ─── Stage 1: Configure ─────────────────────────────────────── -->
+    <section class="stage active" id="stage-configure">
+      <div class="stage-header">
+        <h1>Configure AI Provider</h1>
+        <p class="stage-desc">Select your AI provider and test the connection before proceeding.</p>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <h2 class="card-title">Provider Settings</h2>
+          <div class="form-group">
+            <label for="providerSelect">AI Provider</label>
+            <select id="providerSelect" class="input-select"></select>
+          </div>
+          <div class="form-group">
+            <label for="apiKeyInput">API Key</label>
+            <div class="input-row">
+              <input type="password" id="apiKeyInput" class="input-text" placeholder="sk-...">
+              <button class="btn-icon" id="toggleKeyBtn" title="Show/hide key" type="button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="modelSelect">Model</label>
+            <select id="modelSelect" class="input-select"></select>
+            <div class="custom-model-row" id="customModelRow">
+              <div class="custom-model-input-wrap">
+                <input type="text" id="customModelInput" class="input-text input-mono"
+                  placeholder="Type a custom model ID to override, e.g. gpt-4.5, o3-pro, llama3.3 …"
+                  autocomplete="off" spellcheck="false">
+                <button class="custom-model-clear" id="customModelClear" title="Clear custom model" type="button" style="display:none">×</button>
+              </div>
+              <p class="custom-model-hint" id="customModelHint">
+                Custom ID overrides the dropdown above — useful for newly released models not yet in the list.
+              </p>
+            </div>
+          </div>
+          <div class="form-group" id="baseUrlGroup" style="display:none">
+            <label for="baseUrlInput">Base URL</label>
+            <input type="text" id="baseUrlInput" class="input-text" placeholder="http://localhost:11434">
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="testConnBtn">Test Connection</button>
+            <span class="test-result" id="testResult"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title">Provider Guide</h2>
+          <div class="provider-info" id="providerInfo">
+            <p class="info-muted">Select a provider to see setup instructions.</p>
+          </div>
+          <div class="provider-list" id="providerQuickList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Stage 2: Ingest ────────────────────────────────────────── -->
+    <section class="stage" id="stage-ingest">
+      <div class="stage-header">
+        <h1>Import & Screen References</h1>
+        <p class="stage-desc">Upload reference exports from databases, deduplicate, and screen abstracts with AI.</p>
+      </div>
+
+      <div class="pipeline-steps">
+        <!-- Step A: Upload -->
+        <div class="pipe-step">
+          <div class="pipe-step-header">
+            <span class="pipe-num">A</span>
+            <h3>Upload Reference File</h3>
+          </div>
+          <div class="pipe-step-body">
+            <div class="upload-zone" id="refUploadZone">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <p>Drop <strong>.ris</strong>, <strong>.bib</strong>, or <strong>.csv</strong> file here</p>
+              <p class="upload-hint">or click to browse</p>
+              <input type="file" id="refFileInput" accept=".ris,.bib,.csv,.txt" hidden>
+            </div>
+            <div class="upload-status" id="refUploadStatus"></div>
+          </div>
+        </div>
+
+        <!-- Step B: Parse -->
+        <div class="pipe-step">
+          <div class="pipe-step-header">
+            <span class="pipe-num">B</span>
+            <h3>Parse & Deduplicate</h3>
+          </div>
+          <div class="pipe-step-body">
+            <div class="action-bar">
+              <button class="btn btn-secondary" id="parseBtn" disabled>Parse File</button>
+              <button class="btn btn-secondary" id="dedupBtn" disabled>Deduplicate</button>
+            </div>
+            <div class="stats-row" id="parseStats"></div>
+          </div>
+        </div>
+
+        <!-- Step C: Screen -->
+        <div class="pipe-step">
+          <div class="pipe-step-header">
+            <span class="pipe-num">C</span>
+            <h3>AI Abstract Screening</h3>
+          </div>
+          <div class="pipe-step-body">
+            <div class="form-group">
+              <div class="label-enhance-row">
+                <label for="screenCriteria">Screening Criteria</label>
+                <button class="btn-enhance" id="enhanceScreenCriteria" type="button"
+                  data-target="screenCriteria" data-type="screening_criteria">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                  Enhance
+                </button>
+              </div>
+              <textarea id="screenCriteria" class="input-textarea" rows="6" placeholder="Define your inclusion and exclusion criteria here...&#10;&#10;INCLUSION CRITERIA:&#10;• Study Type: ...&#10;• Population: ...&#10;&#10;EXCLUSION CRITERIA:&#10;• ..."></textarea>
+              <div class="enhance-revert-bar" id="screenCriteriaRevertBar" style="display:none">
+                <span class="enhance-revert-msg">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                  AI enhanced your criteria
+                </span>
+                <button class="btn-revert" data-target="screenCriteria" data-bar="screenCriteriaRevertBar">↩ Revert</button>
+              </div>
+            </div>
+            <div class="action-bar">
+              <button class="btn btn-primary" id="startScreenBtn" disabled>Screen Abstracts</button>
+              <button class="btn btn-danger" id="stopScreenBtn" disabled>Stop</button>
+            </div>
+            <div class="progress-section" id="screenProgressSection" style="display:none">
+              <div class="progress-bar-wrap">
+                <div class="progress-bar" id="screenProgressBar"><span id="screenProgressText">0%</span></div>
+              </div>
+              <div class="stats-row" id="screenStats"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reference table -->
+      <div class="card" id="refTableCard" style="display:none">
+        <div class="card-header-row">
+          <h2 class="card-title">References</h2>
+          <div class="card-actions">
+            <button class="btn btn-sm btn-secondary" id="exportScreeningBtn">Export Results</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="refTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Title</th>
+                <th>Authors</th>
+                <th>Year</th>
+                <th>Decision</th>
+                <th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody id="refTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Stage 3: Process PDFs ──────────────────────────────────── -->
+    <section class="stage" id="stage-process">
+      <div class="stage-header">
+        <h1>Full-Text Processing</h1>
+        <p class="stage-desc">Upload PDFs for full-text screening and structured data extraction.</p>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <h2 class="card-title">Upload PDFs</h2>
+          <div class="upload-zone" id="pdfUploadZone">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <p>Drop <strong>PDF files</strong> here</p>
+            <p class="upload-hint">or click to browse</p>
+            <input type="file" id="pdfFileInput" accept=".pdf" multiple hidden>
+          </div>
+          <div class="upload-status" id="pdfUploadStatus"></div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title">Processing Options</h2>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="parallelCheck" checked>
+              Parallel processing
+            </label>
+          </div>
+          <div class="form-row">
+            <div class="form-group form-half">
+              <label for="workersInput">Max Workers</label>
+              <input type="number" id="workersInput" class="input-text" value="3" min="1" max="10">
+            </div>
+            <div class="form-group form-half">
+              <label for="rateDelayInput">Rate Delay (s)</label>
+              <input type="number" id="rateDelayInput" class="input-text" value="1.0" min="0" step="0.5">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label" title="When enabled, the AI first does a fast abstract screen, then fully screens passing papers. Saves cost/time.">
+              <input type="checkbox" id="twoStageCheck">
+              Two-stage screening
+              <span class="help-icon">?</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label" title="Skips papers that were already successfully processed in previous runs.">
+              <input type="checkbox" id="cacheCheck" checked>
+              Enable caching
+              <span class="help-icon">?</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- PDF file list -->
+      <div class="card" id="pdfListCard" style="display:none">
+        <div class="card-header-row">
+          <div style="display:flex;align-items:center;gap:var(--sp-3)">
+            <h2 class="card-title" style="margin:0">Uploaded PDFs</h2>
+            <span class="pdf-count-badge" id="pdfCountBadge">0</span>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-sm btn-secondary" id="addMorePdfsBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add More
+            </button>
+            <button class="btn btn-sm btn-danger-outline" id="clearAllPdfsBtn">Clear All</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="pdfTable">
+            <thead>
+              <tr>
+                <th style="width:3rem">#</th>
+                <th>Filename</th>
+                <th style="width:7rem">Size</th>
+                <th style="width:8rem">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="pdfTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Screening & Extraction Criteria</h2>
+        <div class="form-row">
+          <div class="form-group form-half">
+            <div class="label-enhance-row">
+              <label for="pdfScreenPrompt">Screening Prompt</label>
+              <button class="btn-enhance" id="enhancePdfScreenPrompt" type="button"
+                data-target="pdfScreenPrompt" data-type="screening_prompt">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                Enhance
+              </button>
+            </div>
+            <textarea id="pdfScreenPrompt" class="input-textarea" rows="8" placeholder="Your screening criteria for full-text papers..."></textarea>
+            <div class="enhance-revert-bar" id="pdfScreenPromptRevertBar" style="display:none">
+              <span class="enhance-revert-msg">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                AI enhanced your prompt
+              </span>
+              <button class="btn-revert" data-target="pdfScreenPrompt" data-bar="pdfScreenPromptRevertBar">↩ Revert</button>
+            </div>
+          </div>
+          <div class="form-group form-half">
+            <div class="label-enhance-row">
+              <label for="extractionFields">Extraction Fields (one per line)</label>
+              <button class="btn-enhance" id="enhanceExtractionFields" type="button"
+                data-target="extractionFields" data-type="extraction_fields">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                Enhance
+              </button>
+            </div>
+            <textarea id="extractionFields" class="input-textarea" rows="8" placeholder="title&#10;authors&#10;publication_year&#10;study_design&#10;sample_size&#10;main_findings&#10;conclusions&#10;limitations"></textarea>
+            <div class="enhance-revert-bar" id="extractionFieldsRevertBar" style="display:none">
+              <span class="enhance-revert-msg">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                AI enhanced your fields
+              </span>
+              <button class="btn-revert" data-target="extractionFields" data-bar="extractionFieldsRevertBar">↩ Revert</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary btn-lg" id="startProcessBtn" disabled>Start Processing</button>
+          <button class="btn btn-danger" id="stopProcessBtn" disabled>Stop</button>
+        </div>
+      </div>
+
+      <!-- Processing monitor -->
+      <div class="card" id="monitorCard" style="display:none">
+        <h2 class="card-title">Processing Monitor</h2>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="processProgressBar"><span id="processProgressText">0%</span></div>
+        </div>
+        <div class="kpi-grid" id="kpiGrid">
+          <div class="kpi">
+            <span class="kpi-value" id="kpiProcessed">0</span>
+            <span class="kpi-label">Processed</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-value" id="kpiInclude">0</span>
+            <span class="kpi-label">Included</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-value" id="kpiExclude">0</span>
+            <span class="kpi-label">Excluded</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-value" id="kpiFlag">0</span>
+            <span class="kpi-label">Flagged</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-value" id="kpiTokens">0</span>
+            <span class="kpi-label">Tokens</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-value" id="kpiRate">—</span>
+            <span class="kpi-label">Files/min</span>
+          </div>
+        </div>
+        <div class="log-area" id="processLog"></div>
+      </div>
+    </section>
+
+    <!-- ─── Stage 4: Results ───────────────────────────────────────── -->
+    <section class="stage" id="stage-results">
+      <div class="stage-header">
+        <h1>Review Results</h1>
+        <p class="stage-desc">Inspect screening decisions and extracted data, then export.</p>
+      </div>
+
+      <!-- PRISMA summary -->
+      <div class="prisma-summary" id="prismaSummary">
+        <div class="prisma-node">
+          <span class="prisma-count" id="prismaIdentified">—</span>
+          <span class="prisma-label">Identified</span>
+        </div>
+        <span class="prisma-arrow">↓</span>
+        <div class="prisma-node">
+          <span class="prisma-count" id="prismaScreened">—</span>
+          <span class="prisma-label">Screened</span>
+        </div>
+        <span class="prisma-arrow">↓</span>
+        <div class="prisma-node prisma-include">
+          <span class="prisma-count" id="prismaIncluded">—</span>
+          <span class="prisma-label">Included</span>
+        </div>
+        <span class="prisma-arrow-side">→</span>
+        <div class="prisma-node prisma-exclude">
+          <span class="prisma-count" id="prismaExcluded">—</span>
+          <span class="prisma-label">Excluded</span>
+        </div>
+      </div>
+
+      <!-- Results tabs -->
+      <div class="results-tabs">
+        <button class="res-tab active" data-restab="screening">Screening</button>
+        <button class="res-tab" data-restab="extraction">Extraction</button>
+      </div>
+
+      <div class="res-panel active" id="panel-screening">
+        <div class="card-header-row">
+          <div class="filter-row">
+            <select id="decisionFilter" class="input-select input-sm">
+              <option value="">All decisions</option>
+              <option value="Likely Include">Likely Include</option>
+              <option value="Likely Exclude">Likely Exclude</option>
+              <option value="Flag for Review">Flag for Review</option>
+              <option value="Error">Error</option>
+            </select>
+            <input type="text" id="searchResults" class="input-text input-sm" placeholder="Search...">
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-sm btn-primary" id="exportScreeningXlsx">Export .xlsx</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="screeningTable">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Decision</th>
+                <th>Stage</th>
+                <th>Reasoning</th>
+                <th>Time</th>
+                <th>Tokens</th>
+              </tr>
+            </thead>
+            <tbody id="screeningTableBody">
+              <tr><td colspan="6">
+                <div class="empty-state">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                  <h3>No Screening Results</h3>
+                  <p>Process some PDFs or references first to see results here.</p>
+                </div>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="res-panel" id="panel-extraction">
+        <div class="card-header-row">
+          <h3 class="card-title">Extracted Data</h3>
+          <div class="card-actions">
+            <button class="btn btn-sm btn-primary" id="exportExtractionXlsx">Export .xlsx</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="extractionTable">
+            <thead><tr id="extractionHead"></tr></thead>
+            <tbody id="extractionTableBody">
+              <tr><td>
+                <div class="empty-state">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                  <h3>No Extraction Data</h3>
+                  <p>Run full-text processing on PDFs to extract data.</p>
+                </div>
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Footer                                                             -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <footer class="appfooter">
+    <span>SLR Automation v3.3.0</span>
+    <span class="footer-sep">·</span>
+    <span>By <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" class="footer-link">Mo Anisi</a></span>
+    <span class="footer-sep">·</span>
+    <a href="https://opensource.org/license/mit" target="_blank" rel="noopener" class="footer-link">MIT License</a>
+    <span class="footer-sep">·</span>
+    <a href="https://github.com/sadeghanisi/SLR" target="_blank" rel="noopener" class="footer-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;margin-right:3px"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      GitHub
+    </a>
+  </footer>
+
+  <!-- Detail modal -->
+  <div class="modal-overlay" id="detailModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">Paper Details</h3>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Help & Guide Drawer                                                -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="help-backdrop" id="helpBackdrop"></div>
+  <aside class="help-drawer" id="helpDrawer" aria-label="Help and Guide" aria-hidden="true">
+    <div class="help-drawer-header">
+      <div>
+        <h2 class="help-drawer-title">Help &amp; Guide</h2>
+        <span class="help-drawer-version">v3.3.0</span>
+      </div>
+      <button class="help-drawer-close" id="helpClose" aria-label="Close help">&times;</button>
+    </div>
+    <div class="help-drawer-body">
+      <nav class="help-nav" id="helpNav">
+        <button class="help-nav-btn active" data-topic="quickstart">Quick Start</button>
+        <button class="help-nav-btn" data-topic="providers">AI Providers</button>
+        <button class="help-nav-btn" data-topic="configure">1 · Configure</button>
+        <button class="help-nav-btn" data-topic="ingest">2 · Ingest &amp; Screen</button>
+        <button class="help-nav-btn" data-topic="process">3 · Full-Text Processing</button>
+        <button class="help-nav-btn" data-topic="results">4 · Results &amp; Export</button>
+        <button class="help-nav-btn" data-topic="criteria">Writing Criteria</button>
+        <button class="help-nav-btn" data-topic="costs">Cost Guide</button>
+        <button class="help-nav-btn" data-topic="faq">FAQ &amp; Troubleshooting</button>
+        <button class="help-nav-btn help-nav-btn--warn" data-topic="disclaimer">⚠ Disclaimer</button>
+      </nav>
+
+      <div class="help-content" id="helpContent">
+
+        <!-- ── Quick Start ───────────────────────────────────────── -->
+        <section class="help-topic active" id="htopic-quickstart">
+          <h3>Quick Start</h3>
+          <p class="help-lead">Five steps from zero to your first results.</p>
+
+          <div class="help-step">
+            <span class="help-step-num">1</span>
+            <div>
+              <strong>Launch the server</strong>
+              <p>Double-click <code>run.bat</code> (Windows), or activate the virtual environment and run <code>python app.py</code>. Then open <a href="http://127.0.0.1:5000" target="_blank" rel="noopener">http://127.0.0.1:5000</a> in your browser.</p>
+            </div>
+          </div>
+          <div class="help-step">
+            <span class="help-step-num">2</span>
+            <div>
+              <strong>Stage 1 — Configure</strong>
+              <p>Select an AI provider, paste your API key, choose a model, and click <em>Test Connection</em>. If it shows a green check, you're ready.</p>
+            </div>
+          </div>
+          <div class="help-step">
+            <span class="help-step-num">3</span>
+            <div>
+              <strong>Stage 2 — Ingest &amp; Screen</strong>
+              <p>Upload a reference file (<code>.ris</code>, <code>.bib</code>, <code>.csv</code>) exported from PubMed, Scopus, or Web of Science. Parse it, deduplicate, then optionally run AI abstract screening.</p>
+            </div>
+          </div>
+          <div class="help-step">
+            <span class="help-step-num">4</span>
+            <div>
+              <strong>Stage 3 — Full-Text Processing</strong>
+              <p>Upload your PDF papers, set your screening prompt and extraction fields, then click <em>Start Processing</em>. Watch live progress in the monitor.</p>
+            </div>
+          </div>
+          <div class="help-step">
+            <span class="help-step-num">5</span>
+            <div>
+              <strong>Stage 4 — Results &amp; Export</strong>
+              <p>Review AI decisions, filter by Include / Exclude / Flag, click rows for full reasoning, and export to <code>.xlsx</code>.</p>
+            </div>
+          </div>
+
+          <div class="help-tip">
+            <strong>Tip:</strong> Your settings (provider, API key, model, criteria) are saved automatically between sessions.
+          </div>
+        </section>
+
+        <!-- ── AI Providers ──────────────────────────────────────── -->
+        <section class="help-topic" id="htopic-providers">
+          <h3>AI Providers</h3>
+          <p class="help-lead">Nine providers are supported. All require an API key except Ollama.</p>
+
+          <div class="help-provider-grid">
+            <div class="help-provider-card">
+              <div class="help-provider-name">Ollama <span class="help-badge free">Free</span></div>
+              <p>Runs entirely on your computer — no API key, no cost, no data leaves your machine. Requires 8 GB RAM. Best for privacy-sensitive research.</p>
+              <p><strong>Setup:</strong> Install from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a>, run <code>ollama pull llama3.2</code>, then <code>ollama serve</code>. Set Base URL to <code>http://localhost:11434</code>.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">DeepSeek <span class="help-badge trial">Free credits</span></div>
+              <p>Very affordable. Free credits on sign-up; ~$0.01 per 1,000 abstracts after that. Great for large reviews on a budget.</p>
+              <p><strong>Setup:</strong> <a href="https://platform.deepseek.com" target="_blank" rel="noopener">platform.deepseek.com</a> → API Keys → Create. Model: <code>deepseek-chat</code>.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">Google Gemini <span class="help-badge free">Free tier</span></div>
+              <p>Generous free tier (1,500 requests/day on Gemini 2.0 Flash). Excellent for getting started without any payment method.</p>
+              <p><strong>Setup:</strong> <a href="https://ai.google.dev" target="_blank" rel="noopener">ai.google.dev</a> → Get API key. Model: <code>gemini-2.0-flash</code>.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">OpenAI <span class="help-badge paid">Paid</span></div>
+              <p>Industry standard. New accounts receive a small free credit. Recommended model: <code>gpt-4o-mini</code> — highly capable and inexpensive (~$0.09 per 1,000 abstracts).</p>
+              <p><strong>Setup:</strong> <a href="https://platform.openai.com" target="_blank" rel="noopener">platform.openai.com</a> → API keys → Create.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">Anthropic (Claude) <span class="help-badge paid">Paid</span></div>
+              <p>Excellent reasoning quality. Recommended for accuracy-critical extractions. Model: <code>claude-3-5-haiku-20241022</code> (fast and affordable) or <code>claude-3-5-sonnet-20241022</code> (best quality).</p>
+              <p><strong>Setup:</strong> <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> → API Keys.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">Mistral <span class="help-badge trial">Free tier</span></div>
+              <p>European provider with a free tier. Good for multilingual reviews. Model: <code>mistral-small-latest</code>.</p>
+              <p><strong>Setup:</strong> <a href="https://console.mistral.ai" target="_blank" rel="noopener">console.mistral.ai</a> → API Keys.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">Kimi (Moonshot) <span class="help-badge trial">Free credits</span></div>
+              <p>Good for reviews involving Chinese-language papers. Model: <code>moonshot-v1-8k</code>.</p>
+              <p><strong>Setup:</strong> <a href="https://platform.moonshot.cn" target="_blank" rel="noopener">platform.moonshot.cn</a> → API Management.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">Grok (xAI) <span class="help-badge paid">Paid</span></div>
+              <p>Latest xAI technology. Model: <code>grok-beta</code>.</p>
+              <p><strong>Setup:</strong> <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a> → API Keys.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">Custom OpenAI-Compatible <span class="help-badge free">Varies</span></div>
+              <p>Connects to any OpenAI-compatible server: LM Studio, vLLM, Together AI, Groq, etc. Enter the Base URL of your local or remote server.</p>
+            </div>
+          </div>
+
+          <div class="help-tip">
+            <strong>Custom model IDs:</strong> If a model isn't in the dropdown (e.g., a newly released version), type its ID directly in the <em>custom model</em> input below the dropdown — it overrides the selection.
+          </div>
+        </section>
+
+        <!-- ── Stage 1: Configure ────────────────────────────────── -->
+        <section class="help-topic" id="htopic-configure">
+          <h3>Stage 1 · Configure</h3>
+          <p class="help-lead">Set up your AI provider before anything else. Settings are saved automatically.</p>
+
+          <dl class="help-dl">
+            <dt>AI Provider</dt>
+            <dd>Select your provider from the dropdown. Each provider has different pricing, capabilities, and setup requirements. See the <em>AI Providers</em> tab for details.</dd>
+
+            <dt>API Key</dt>
+            <dd>Paste your API key from the provider's dashboard. The key is stored only in <code>webapp_settings.json</code> on your own machine — it is never transmitted anywhere except directly to the AI provider when you run a request.</dd>
+
+            <dt>Model</dt>
+            <dd>Select from the predefined list for your provider. Smaller models (e.g., <code>gpt-4o-mini</code>) are faster and cheaper; larger models produce higher-quality decisions. For most abstract screening tasks, a small/medium model is sufficient.</dd>
+
+            <dt>Custom Model ID</dt>
+            <dd>Type any model identifier in the text box below the dropdown to override the selection. Useful for newly released models not yet in the list (e.g., <code>gpt-4.5</code>, <code>claude-opus-4</code>, <code>llama3.3:70b</code>). Leave blank to use the dropdown selection.</dd>
+
+            <dt>Base URL</dt>
+            <dd>Only shown for <em>Ollama (Local)</em> and <em>Custom OpenAI-Compatible</em>. Default for Ollama: <code>http://localhost:11434</code>.</dd>
+
+            <dt>Test Connection</dt>
+            <dd>Always test before running a large batch. A green result confirms the API key is valid and the model is accessible.</dd>
+          </dl>
+        </section>
+
+        <!-- ── Stage 2: Ingest ───────────────────────────────────── -->
+        <section class="help-topic" id="htopic-ingest">
+          <h3>Stage 2 · Ingest &amp; Screen</h3>
+          <p class="help-lead">Import references from databases, remove duplicates, and screen abstracts with AI.</p>
+
+          <h4>Step A — Upload Reference File</h4>
+          <p>Export your search results from academic databases and upload the file here.</p>
+          <table class="help-table">
+            <thead><tr><th>Format</th><th>Extension</th><th>Export from</th></tr></thead>
+            <tbody>
+              <tr><td>RIS</td><td><code>.ris</code></td><td>PubMed (NBIB → RIS), Scopus, Web of Science, Embase, Zotero</td></tr>
+              <tr><td>BibTeX</td><td><code>.bib</code></td><td>Web of Science, Google Scholar, Mendeley, Zotero</td></tr>
+              <tr><td>CSV</td><td><code>.csv</code></td><td>Scopus, Web of Science (must include Title, Abstract, DOI columns)</td></tr>
+            </tbody>
+          </table>
+
+          <h4>Step B — Parse &amp; Deduplicate</h4>
+          <p><strong>Parse:</strong> Extracts title, authors, year, abstract, journal, and DOI from the file.</p>
+          <p><strong>Deduplicate:</strong> Removes duplicates in two passes — exact DOI matches first, then fuzzy title matching (90% similarity threshold). This eliminates papers that appear in multiple databases.</p>
+
+          <h4>Step C — AI Abstract Screening</h4>
+          <p>Enter your inclusion/exclusion criteria in the text area, then click <em>Screen Abstracts</em>. The AI reads each abstract and returns one of:</p>
+          <ul class="help-list">
+            <li><span class="decision-badge likely-include">Likely Include</span> — abstract meets your criteria</li>
+            <li><span class="decision-badge likely-exclude">Likely Exclude</span> — abstract does not meet criteria</li>
+            <li><span class="decision-badge flag">Flag for Review</span> — AI is uncertain; you must decide</li>
+          </ul>
+          <p>You can stop and resume screening at any time. Results appear in the table below as they come in.</p>
+
+          <div class="help-tip">
+            <strong>Tip:</strong> Abstract screening is optional — you can skip directly to Stage 3 and upload PDFs if you prefer to screen at the full-text level.
+          </div>
+        </section>
+
+        <!-- ── Stage 3: Process ──────────────────────────────────── -->
+        <section class="help-topic" id="htopic-process">
+          <h3>Stage 3 · Full-Text Processing</h3>
+          <p class="help-lead">Upload PDFs for AI-powered screening and structured data extraction.</p>
+
+          <h4>Upload PDFs</h4>
+          <p>Drag and drop PDF files onto the upload zone, or click to browse. You can upload many files at once. The tool extracts text from each PDF and sends it to the AI.</p>
+
+          <h4>Processing Options</h4>
+          <dl class="help-dl">
+            <dt>Parallel Processing</dt>
+            <dd>When enabled, multiple PDFs are processed simultaneously, significantly reducing total time. Disable only if you experience rate-limit errors.</dd>
+
+            <dt>Max Workers</dt>
+            <dd>Number of parallel processes (default: 3). Each worker uses a separate API call at the same time. Start with 2–3; increase if your API plan allows higher rate limits.</dd>
+
+            <dt>Rate Delay (s)</dt>
+            <dd>Pause in seconds between sending papers to the AI (default: 1.0). Increase to 2.0–3.0 if you see "Too Many Requests" errors.</dd>
+
+            <dt>Two-Stage Screening</dt>
+            <dd>The AI first does a fast abstract-level check. Only papers that pass this check proceed to full extraction. Saves significant cost when many papers are expected to be excluded.</dd>
+
+            <dt>Enable Caching</dt>
+            <dd>Skips files already successfully processed in a previous run. <strong>Always keep this enabled.</strong> If processing is interrupted, you can restart without re-paying for completed files.</dd>
+          </dl>
+
+          <h4>Screening Prompt &amp; Extraction Fields</h4>
+          <p><strong>Screening Prompt:</strong> Your inclusion/exclusion criteria written in plain language. The AI applies these to the full text of each paper. See the <em>Writing Criteria</em> tab for examples.</p>
+          <p><strong>Extraction Fields:</strong> One field name per line. The AI extracts this information from each included paper. Examples: <code>title</code>, <code>authors</code>, <code>study_design</code>, <code>sample_size</code>, <code>main_findings</code>.</p>
+
+          <h4>Processing Monitor</h4>
+          <p>While processing runs, the monitor shows progress, decision counts (included / excluded / flagged), files per minute, and a live log. You can safely stop processing at any time — cached results are preserved.</p>
+        </section>
+
+        <!-- ── Stage 4: Results ──────────────────────────────────── -->
+        <section class="help-topic" id="htopic-results">
+          <h3>Stage 4 · Results &amp; Export</h3>
+          <p class="help-lead">Review AI decisions and export data for your PRISMA diagram and report.</p>
+
+          <h4>PRISMA Summary</h4>
+          <p>The header shows counts for: Identified → Screened → Included / Excluded — matching the standard PRISMA flow diagram format.</p>
+
+          <h4>Screening Results</h4>
+          <table class="help-table">
+            <thead><tr><th>Decision</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><span class="decision-badge likely-include">Likely Include</span></td><td>Paper meets your inclusion criteria — include in review.</td></tr>
+              <tr><td><span class="decision-badge likely-exclude">Likely Exclude</span></td><td>Paper does not meet criteria — exclude from review.</td></tr>
+              <tr><td><span class="decision-badge flag">Flag for Review</span></td><td>AI was uncertain — you must make the final decision manually.</td></tr>
+              <tr><td><span class="decision-badge error">Error</span></td><td>File could not be read (likely scanned image PDF without text layer).</td></tr>
+            </tbody>
+          </table>
+          <p>Click any row to see the AI's full reasoning for its decision.</p>
+
+          <h4>Extraction Results</h4>
+          <p>Structured data extracted from included papers. Each column corresponds to one of your extraction fields. Always verify a random sample against the original papers — AI extraction is highly accurate but not infallible.</p>
+
+          <h4>Filtering &amp; Search</h4>
+          <p>Use the dropdown to filter by decision type. Use the search box to find papers by filename or reasoning text.</p>
+
+          <h4>Export to Excel</h4>
+          <p>Click <em>Export .xlsx</em> to download results. The screening export includes all papers with their decisions and reasoning. The extraction export includes structured fields for included papers — ready for your review table.</p>
+        </section>
+
+        <!-- ── Writing Criteria ──────────────────────────────────── -->
+        <section class="help-topic" id="htopic-criteria">
+          <h3>Writing Criteria</h3>
+          <p class="help-lead">Well-written criteria are the most important factor in review quality.</p>
+
+          <h4>Inclusion Criteria — Example (Medical)</h4>
+          <pre class="help-code">INCLUSION CRITERIA:
+• Study Type: Randomized controlled trials (RCTs) or quasi-experimental studies
+• Population: Adult human participants (age 18+)
+• Intervention: Any pharmacological or behavioral intervention for type 2 diabetes
+• Outcome: At least one primary outcome measuring glycemic control (HbA1c, fasting glucose)
+• Publication Year: 2015 to 2025
+• Language: English only
+• Publication Type: Peer-reviewed journal articles</pre>
+
+          <h4>Exclusion Criteria — Example</h4>
+          <pre class="help-code">EXCLUSION CRITERIA:
+• Animal studies or in vitro studies
+• Review articles, systematic reviews, or meta-analyses
+• Conference abstracts without full text
+• Studies with fewer than 30 participants
+• Studies without a control group</pre>
+
+          <h4>Tips for Effective Criteria</h4>
+          <ul class="help-list">
+            <li><strong>Be specific</strong> — "RCTs only" is better than "good quality studies."</li>
+            <li><strong>Use standard terminology</strong> — RCT, cohort, cross-sectional, meta-analysis. The AI knows these terms.</li>
+            <li><strong>Separate inclusion from exclusion</strong> — never mix them in the same block.</li>
+            <li><strong>Test with known papers</strong> — find 5 papers that should include and 5 that should exclude, run them, verify the AI agrees.</li>
+            <li><strong>Iterate</strong> — if the AI makes systematic errors, refine the relevant criterion.</li>
+            <li><strong>Write for a research assistant</strong> — imagine explaining your criteria to a knowledgeable but uninformed assistant.</li>
+          </ul>
+
+          <h4>Extraction Fields</h4>
+          <p>Enter one field name per line in the <em>Extraction Fields</em> box. Use plain, descriptive names:</p>
+          <pre class="help-code">title
+authors
+publication_year
+journal
+study_design
+sample_size
+country
+intervention
+comparison
+primary_outcome
+key_findings
+limitations
+funding</pre>
+          <p>Add or remove fields based on your review's data extraction form.</p>
+        </section>
+
+        <!-- ── Cost Guide ────────────────────────────────────────── -->
+        <section class="help-topic" id="htopic-costs">
+          <h3>Cost Guide</h3>
+          <p class="help-lead">Most full systematic reviews cost less than $1 USD in API fees.</p>
+
+          <h4>How Pricing Works</h4>
+          <p>AI providers charge per <strong>token</strong> — roughly 4 characters, or ¾ of a word. You pay for both what you send (input) and what the AI returns (output). Input tokens are usually cheaper.</p>
+
+          <h4>Estimated Costs</h4>
+          <table class="help-table">
+            <thead><tr><th>Provider</th><th>Model</th><th>1,000 abstracts</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>Ollama</td><td>llama3.2</td><td><strong>$0.00</strong></td><td>Free — runs locally</td></tr>
+              <tr><td>DeepSeek</td><td>deepseek-chat</td><td>~$0.01</td><td>Very affordable</td></tr>
+              <tr><td>Google Gemini</td><td>gemini-2.0-flash</td><td>~$0.02</td><td>Generous free tier</td></tr>
+              <tr><td>OpenAI</td><td>gpt-4o-mini</td><td>~$0.09</td><td>Recommended balance</td></tr>
+              <tr><td>Anthropic</td><td>claude-3-5-haiku</td><td>~$0.10</td><td>Fast and accurate</td></tr>
+              <tr><td>OpenAI</td><td>gpt-4o</td><td>~$1.50</td><td>Most capable</td></tr>
+              <tr><td>Anthropic</td><td>claude-3-5-sonnet</td><td>~$1.80</td><td>Excellent quality</td></tr>
+            </tbody>
+          </table>
+
+          <h4>Tips to Minimize Costs</h4>
+          <ul class="help-list">
+            <li><strong>Always enable caching</strong> — prevents re-charging for files already processed.</li>
+            <li><strong>Test with 5–10 papers first</strong> — verify your criteria work before running 3,000 papers.</li>
+            <li><strong>Use small models for abstract screening</strong> — <code>gpt-4o-mini</code> or <code>deepseek-chat</code> are sufficient for title/abstract decisions.</li>
+            <li><strong>Use larger models for extraction only</strong> — if you need high quality extraction, upgrade only for the full-text stage.</li>
+            <li><strong>Enable Two-Stage processing</strong> — screens quickly first, extracts only from papers that pass, saving tokens on excluded papers.</li>
+            <li><strong>Watch the token counter</strong> — the monitor shows running token usage in real time.</li>
+          </ul>
+        </section>
+
+        <!-- ── FAQ ───────────────────────────────────────────────── -->
+        <section class="help-topic" id="htopic-faq">
+          <h3>FAQ &amp; Troubleshooting</h3>
+
+          <details class="help-faq">
+            <summary>My API key isn't working / "Authentication failed"</summary>
+            <p>1. Log into your provider's website and confirm the key is still active.<br>
+            2. Re-copy the key — hidden spaces at the start or end are a common cause.<br>
+            3. Check your account has credit or a payment method on file.<br>
+            4. Use <em>Test Connection</em> to see the exact error message.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>"Rate Limit Error" or "Too many requests"</summary>
+            <p>You are sending papers faster than your API plan allows.<br>
+            1. Increase <em>Rate Delay</em> to 2.0 or 3.0 seconds.<br>
+            2. Reduce <em>Max Workers</em> to 1 or 2.<br>
+            3. Wait 5–10 minutes for the rate limit to reset.<br>
+            4. Upgrade your API plan for sustained high-volume work.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>Ollama connection failed</summary>
+            <p>1. Open a terminal and run <code>ollama serve</code>. Leave the window open.<br>
+            2. Confirm the Base URL is <code>http://localhost:11434</code>.<br>
+            3. Verify a model is downloaded: run <code>ollama list</code>.<br>
+            4. If no models appear, run <code>ollama pull llama3.2</code>.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>The AI is making wrong screening decisions</summary>
+            <p>This almost always means the criteria need refinement.<br>
+            1. Read the <em>Reasoning</em> column — the AI explains why it made each decision.<br>
+            2. Identify the pattern in wrong decisions (e.g., including animal studies you want excluded).<br>
+            3. Add that condition explicitly to your exclusion criteria.<br>
+            4. Re-run on the problematic subset.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>PDF files show "Error" in results</summary>
+            <p>The PDF likely contains scanned images without a text layer (no OCR).<br>
+            1. Open the PDF — if you cannot copy text from it, it is image-only.<br>
+            2. Use Adobe Acrobat or an online OCR tool to add a text layer.<br>
+            3. Password-protected PDFs also cannot be processed — remove the password first.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>Processing stopped unexpectedly</summary>
+            <p>1. Check the processing log for the last error message.<br>
+            2. Verify your internet connection.<br>
+            3. Re-click <em>Start Processing</em> — caching means completed files are skipped automatically.<br>
+            4. If RAM is low, reduce Max Workers to 1.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>Reference file fails to parse</summary>
+            <p>1. Confirm the file is a valid <code>.ris</code>, <code>.bib</code>, or <code>.csv</code>.<br>
+            2. For CSV: ensure it has columns named <code>title</code> and <code>abstract</code> (or <code>Title</code> / <code>Abstract</code>).<br>
+            3. Some databases export CSV with different column names — rename them in Excel before uploading.<br>
+            4. For RIS files from PubMed, use the "NBIB" format and rename the extension to <code>.ris</code>.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>Settings are not saved between sessions</summary>
+            <p>Settings are saved to <code>webapp_settings.json</code> in the WebApp folder. Check that the file is not in a read-only location. If the file exists but is empty, delete it and restart the server.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>Can I use this tool for multiple review projects?</summary>
+            <p>Yes. Each time you start a new project, clear the uploads folder or restart the server (which resets the in-memory session). Your screening criteria and provider settings persist in <code>webapp_settings.json</code>. You can also keep separate copies of the WebApp folder for different projects.</p>
+          </details>
+
+          <details class="help-faq">
+            <summary>How do I cite this tool in my paper?</summary>
+            <p>Cite the tool as: <em>Anisi, M. (2026). SLR Automation Tool (v3.3.0). GitHub. https://github.com/sadeghanisi/SLR</em><br>
+            Also note the AI model and provider used, the date of the screening run, and your inclusion/exclusion criteria in your methods section.</p>
+          </details>
+        </section>
+
+        <!-- ── Disclaimer & Notice ─────────────────────────────── -->
+        <section class="help-topic" id="htopic-disclaimer">
+
+          <div class="disclaimer-banner">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <div>
+              <strong>Important Notice</strong>
+              <p>Read carefully before using this tool for academic or scientific work.</p>
+            </div>
+          </div>
+
+          <!-- 1. What this tool IS and IS NOT -->
+          <div class="disclaimer-section">
+            <h4 class="disclaimer-heading">What This Tool Is — and Is Not</h4>
+
+            <div class="disclaimer-two-col">
+              <div class="disclaimer-col is">
+                <div class="disclaimer-col-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                  This tool IS
+                </div>
+                <ul>
+                  <li>An <strong>automation assistant</strong> that accelerates the mechanical, time-consuming parts of a systematic review — uploading, parsing, deduplication, and initial screening passes.</li>
+                  <li>A <strong>first-pass filter</strong>. It reduces the volume of papers a human must read, not the need for human reading.</li>
+                  <li>A <strong>data-extraction helper</strong> that produces a structured first draft. The researcher is responsible for verifying every extracted value.</li>
+                  <li>A <strong>research productivity tool</strong> intended to complement, not replace, rigorous methodological judgment.</li>
+                  <li><strong>Open-source software</strong> provided under the MIT License — free to use, modify, and distribute with attribution.</li>
+                </ul>
+              </div>
+              <div class="disclaimer-col isnot">
+                <div class="disclaimer-col-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  This tool IS NOT
+                </div>
+                <ul>
+                  <li><strong>Not a peer reviewer</strong> or substitute for expert methodological assessment of study quality.</li>
+                  <li><strong>Not infallible.</strong> AI models make classification errors, miss nuance, misread ambiguous text, and may hallucinate extracted values. Error rates vary by model, domain, and criteria complexity.</li>
+                  <li><strong>Not a guarantee of PRISMA compliance.</strong> Compliance requires human judgment, documented search strategies, risk-of-bias assessment, and proper reporting — none of which this tool performs automatically.</li>
+                  <li><strong>Not a substitute for human screening.</strong> All AI decisions should be treated as recommendations pending researcher verification.</li>
+                  <li><strong>Not affiliated with</strong> OpenAI, Anthropic, Google, or any other AI provider. It is a third-party client that calls their public APIs.</li>
+                  <li><strong>Not validated</strong> for clinical, regulatory, or policy decision-making contexts without independent verification of outputs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. User Responsibility -->
+          <div class="disclaimer-section">
+            <h4 class="disclaimer-heading">Your Responsibility as the Researcher</h4>
+            <p class="disclaimer-p">By using this tool you accept full responsibility for the quality, accuracy, and integrity of your systematic review. Specifically:</p>
+            <ul class="disclaimer-list">
+              <li><strong>Verify every AI decision.</strong> Screen a representative sample of AI-classified papers manually — including both included and excluded papers — to estimate the error rate before trusting the full output. Best practice is to verify at least 10–20% of decisions independently.</li>
+              <li><strong>Verify every extracted value.</strong> Data extracted from PDFs must be checked against the source paper before inclusion in your review table or analysis. AI extraction is a first draft, not a final record.</li>
+              <li><strong>Maintain a complete audit trail.</strong> Document the exact AI provider, model name and version, API access date, inclusion/exclusion criteria text, and any post-hoc corrections you made. This is required for transparent reporting.</li>
+              <li><strong>Do not rely solely on AI for eligibility decisions.</strong> Final inclusion and exclusion decisions for a PRISMA-compliant review must involve human judgment, ideally with dual independent screening for a subset of records.</li>
+              <li><strong>Understand your criteria before automating.</strong> If your inclusion/exclusion criteria are ambiguous to you, they will produce unpredictable AI results. Pilot-test on 10–20 papers with known outcomes before running a full batch.</li>
+            </ul>
+          </div>
+
+          <!-- 3. Academic & Scientific Integrity -->
+          <div class="disclaimer-section">
+            <h4 class="disclaimer-heading">Academic &amp; Scientific Integrity</h4>
+            <ul class="disclaimer-list">
+              <li><strong>Disclosure is mandatory.</strong> You must disclose the use of AI-assisted screening in your methods section. Failure to do so may violate journal policies, institutional guidelines, and research integrity standards.</li>
+              <li><strong>Cite the tool correctly.</strong> When reporting, cite the tool, the AI model used, and the access date. Example methods statement: <em>"Abstract screening was conducted using SLR Automation Tool v3.3.0 (Anisi, 2026) with [Provider] [Model], with manual verification of a random 15% sample (Cohen's κ = 0.XX)."</em></li>
+              <li><strong>AI outputs are not citable sources.</strong> AI-generated reasoning in the results panel is a processing artifact, not a peer-reviewed finding. It must not be quoted or presented as evidence in your review.</li>
+              <li><strong>Flagged papers require human decision.</strong> Papers marked "Flag for Review" have been identified as requiring human judgment. Every flagged paper must be reviewed manually before a final inclusion/exclusion decision is recorded.</li>
+              <li><strong>Cross-database deduplication is not exhaustive.</strong> The fuzzy-matching deduplication in this tool catches most, but not all, duplicates. A final manual check of your included papers list is recommended.</li>
+              <li><strong>Model bias.</strong> AI language models are trained on existing literature and may exhibit systematic biases — for example, favouring studies from certain languages, regions, or publication types. Be aware of this when interpreting results, particularly for under-represented populations or languages.</li>
+            </ul>
+          </div>
+
+          <!-- 4. Costs & API Usage -->
+          <div class="disclaimer-section">
+            <h4 class="disclaimer-heading">Costs, API Usage &amp; Data Privacy</h4>
+            <ul class="disclaimer-list">
+              <li><strong>You are responsible for all API costs.</strong> This tool sends your paper content to third-party AI providers via your own API key. All charges incurred are billed directly to your account with the respective provider. Monitor your usage dashboard actively.</li>
+              <li><strong>Costs can escalate unexpectedly.</strong> Processing a large folder of PDFs or running multiple workers simultaneously can consume significant tokens. Always test with a small batch first. Use caching to prevent accidental re-processing.</li>
+              <li><strong>Your content is sent to third parties.</strong> When using cloud AI providers (OpenAI, Anthropic, Google, etc.), the text extracted from your PDFs and reference files is transmitted to and processed on their servers. Review the data-processing and privacy policies of your chosen provider before uploading sensitive, confidential, or unpublished research material.</li>
+              <li><strong>Ollama is the only fully private option.</strong> If you require that no paper content leaves your machine, use Ollama with a locally downloaded model. No data is transmitted externally.</li>
+              <li><strong>Rate limits and throttling.</strong> Exceeding your API provider's rate limits will cause processing errors. This is not a bug in the tool — it is a constraint of the external API. Increase Rate Delay or reduce Max Workers if you encounter rate-limit errors.</li>
+              <li><strong>No warranties on uptime or availability.</strong> This tool depends on third-party AI APIs. Outages, model deprecations, or pricing changes by providers are outside this tool's control.</li>
+            </ul>
+          </div>
+
+          <!-- 5. No Warranty -->
+          <div class="disclaimer-section">
+            <h4 class="disclaimer-heading">No Warranty — MIT License</h4>
+            <div class="disclaimer-license">
+              <p>This software is provided under the <a href="https://opensource.org/license/mit" target="_blank" rel="noopener">MIT License</a>. The following terms apply:</p>
+              <blockquote class="disclaimer-quote">
+                THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+              </blockquote>
+              <p>In plain language: this tool is provided free of charge and in good faith. The author makes no guarantee that it will produce correct, complete, or publication-ready outputs. You use it at your own risk. The author is not liable for errors in your systematic review, incorrect screening decisions, data extraction mistakes, API costs, or any consequences arising from reliance on AI-generated outputs.</p>
+            </div>
+          </div>
+
+          <!-- 6. Summary checklist -->
+          <div class="disclaimer-section">
+            <h4 class="disclaimer-heading">Pre-Publication Checklist</h4>
+            <p class="disclaimer-p">Before submitting a review that used this tool, confirm each of the following:</p>
+            <ul class="disclaimer-checklist">
+              <li><label><input type="checkbox"><span> I have manually verified a representative sample of AI screening decisions (both included and excluded).</span></label></li>
+              <li><label><input type="checkbox"><span> I have reviewed all papers flagged as "Flag for Review" manually.</span></label></li>
+              <li><label><input type="checkbox"><span> I have verified extracted data values against the source papers.</span></label></li>
+              <li><label><input type="checkbox"><span> My methods section discloses the use of AI-assisted screening, naming the tool, provider, model, and access date.</span></label></li>
+              <li><label><input type="checkbox"><span> I have checked for remaining duplicates in my final included-papers list.</span></label></li>
+              <li><label><input type="checkbox"><span> I have reviewed the data privacy policy of my AI provider and confirmed I am permitted to upload this content.</span></label></li>
+              <li><label><input type="checkbox"><span> I understand and accept that I am solely responsible for the accuracy and integrity of my review.</span></label></li>
+            </ul>
+          </div>
+
+        </section>
+
+      </div><!-- /help-content -->
+    </div><!-- /help-drawer-body -->
+  </aside>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
