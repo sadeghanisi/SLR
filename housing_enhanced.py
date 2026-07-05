@@ -13,6 +13,7 @@ import time
 import threading
 import traceback
 import json
+import unicodedata
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,12 +42,24 @@ def _canonical_json(data: Any) -> str:
     )
 
 
-def _sha256_text(text: str) -> str:
+def _hash_utf8(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _normalize_text_for_cache(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+def _sha256_text(text: str) -> str:
+    return _hash_utf8(_normalize_text_for_cache(text))
+
+
 def _sha256_json(data: Any) -> str:
-    return _sha256_text(_canonical_json(data))
+    return _hash_utf8(_canonical_json(data))
 
 
 def _without_secrets(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -346,6 +359,8 @@ class SystematicReviewAutomation:
     ) -> Dict[str, Any]:
         context = {
             'cache_schema_version': CACHE_SCHEMA_VERSION,
+            'app_version': __version__,
+            'pipeline_version': __version__,
             'kind': kind,
             'stage': stage,
             'text_hash': _sha256_text(text),
@@ -369,17 +384,23 @@ class SystematicReviewAutomation:
         tokens: int = 0,
         decision: str = None,
         status: str = "ok",
+        parse_status: str = "ok",
+        retry_count: int = 0,
         error: str = None,
     ):
+        provider_profile = cache_context.get('provider_profile') or {}
         event = {
             'timestamp': datetime.now().isoformat(timespec='seconds'),
             'schema_version': CACHE_SCHEMA_VERSION,
+            'app_version': __version__,
+            'pipeline_version': __version__,
             'kind': kind,
             'filename': filename,
             'stage': stage,
             'cache_hit': cache_hit,
             'cache_key': cache_context.get('cache_key'),
             'text_hash': cache_context.get('text_hash'),
+            'provider': provider_profile.get('provider'),
             'provider_profile': cache_context.get('provider_profile'),
             'model': cache_context.get('model'),
             'prompt_hash': cache_context.get('prompt_hash'),
@@ -388,6 +409,8 @@ class SystematicReviewAutomation:
             'api_tokens_used': tokens,
             'decision': decision,
             'status': status,
+            'parse_status': parse_status,
+            'retry_count': retry_count,
         }
         if error:
             event['error'] = error
@@ -398,7 +421,45 @@ class SystematicReviewAutomation:
         except Exception as e:
             self.logger.warning(f"Audit ledger write: {e}")
 
-    def _cache_load(self, key: str, kind: str) -> Optional[Dict]:
+    def _cache_metadata_matches(
+        self,
+        data: Dict[str, Any],
+        expected_context: Optional[Dict[str, Any]],
+        kind: str,
+    ) -> bool:
+        if expected_context is None:
+            return True
+        metadata = data.get('cache_metadata')
+        if not isinstance(metadata, dict):
+            return False
+        required = (
+            'cache_schema_version',
+            'app_version',
+            'pipeline_version',
+            'kind',
+            'stage',
+            'text_hash',
+            'provider_profile',
+            'model',
+            'prompt_hash',
+            'extraction_fields_hash',
+            'advanced_config_hash',
+            'cache_key',
+        )
+        if any(field not in metadata for field in required):
+            return False
+        if metadata.get('cache_schema_version') != CACHE_SCHEMA_VERSION:
+            return False
+        if metadata.get('kind') != kind:
+            return False
+        return all(metadata.get(field) == value for field, value in expected_context.items())
+
+    def _cache_load(
+        self,
+        key: str,
+        kind: str,
+        expected_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict]:
         if not self.cache_enabled:
             return None
         # Runtime cache loading is JSON-only. Legacy pickle caches are unsafe to
@@ -407,7 +468,11 @@ class SystematicReviewAutomation:
         if jp.exists():
             try:
                 with open(jp, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                if expected_context is None:
+                    return data if isinstance(data, dict) else None
+                if isinstance(data, dict) and self._cache_metadata_matches(data, expected_context, kind):
+                    return data
             except Exception:
                 pass
         return None
@@ -586,7 +651,7 @@ class SystematicReviewAutomation:
             stage=stage,
         )
         cache_key = cache_context['cache_key']
-        cached = self._cache_load(cache_key, 'screening')
+        cached = self._cache_load(cache_key, 'screening', expected_context=cache_context)
         if cached:
             cached.update({'filename': filename, 'processing_time': time.time() - start})
             # Only pass fields that exist in the dataclass
@@ -661,6 +726,7 @@ class SystematicReviewAutomation:
                 cache_context=cache_context,
                 cache_hit=False,
                 status='error',
+                parse_status='error',
                 error=str(e),
             )
             return ScreeningResult(
@@ -683,7 +749,7 @@ class SystematicReviewAutomation:
             prompt=self._extraction_prompt_fingerprint_source(),
         )
         cache_key = cache_context['cache_key']
-        cached = self._cache_load(cache_key, 'extraction')
+        cached = self._cache_load(cache_key, 'extraction', expected_context=cache_context)
         if cached:
             result = ExtractionResult(
                 filename=filename,
@@ -782,6 +848,7 @@ class SystematicReviewAutomation:
                 cache_context=cache_context,
                 cache_hit=False,
                 status='error',
+                parse_status='error',
                 error=str(e),
             )
             return ExtractionResult(

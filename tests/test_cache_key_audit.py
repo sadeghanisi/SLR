@@ -1,7 +1,7 @@
 import hashlib
 import json
 
-from housing_enhanced import CACHE_SCHEMA_VERSION, SystematicReviewAutomation
+from housing_enhanced import CACHE_SCHEMA_VERSION, __version__, SystematicReviewAutomation
 
 
 def _automation(monkeypatch, tmp_path, **kwargs):
@@ -61,6 +61,32 @@ def test_cache_key_includes_provider_model_prompt_fields_config_and_schema(monke
         prompt={"screening_prompt": base.screening_prompt, "stage": "Full-text"},
         stage="Full-text",
     )["cache_schema_version"] == CACHE_SCHEMA_VERSION
+    assert base._cache_key_context(
+        kind="screening",
+        text=text,
+        prompt={"screening_prompt": base.screening_prompt, "stage": "Full-text"},
+        stage="Full-text",
+    )["app_version"] == __version__
+
+
+def test_normalized_text_hash_is_stable_for_line_endings_and_spaces(monkeypatch, tmp_path):
+    auto = _automation(monkeypatch, tmp_path, screening_prompt="screen {text}")
+    prompt = {"screening_prompt": auto.screening_prompt, "stage": "Full-text"}
+    first = auto._cache_key_context(
+        kind="screening",
+        text="  A   paper\r\n\r\n\r\nwith text  ",
+        prompt=prompt,
+        stage="Full-text",
+    )
+    second = auto._cache_key_context(
+        kind="screening",
+        text="A paper\n\nwith text",
+        prompt=prompt,
+        stage="Full-text",
+    )
+
+    assert first["text_hash"] == second["text_hash"]
+    assert first["cache_key"] == second["cache_key"]
 
 
 def test_legacy_text_only_cache_file_is_not_used(monkeypatch, tmp_path):
@@ -69,6 +95,34 @@ def test_legacy_text_only_cache_file_is_not_used(monkeypatch, tmp_path):
     legacy_file = auto.cache_folder / f"screening_{legacy_key}.json"
     legacy_file.write_text(
         json.dumps({"decision": "Likely Exclude", "reasoning": "legacy", "notes": ""}),
+        encoding="utf-8",
+    )
+    calls = {"count": 0}
+
+    def fake_llm_call(messages, **kwargs):
+        calls["count"] += 1
+        return '{"decision":"Likely Include","reasoning":"fresh","notes":""}', 17
+
+    monkeypatch.setattr(auto, "_llm_call", fake_llm_call)
+
+    result = auto.screen_article("paper text", "paper.pdf")
+
+    assert result.decision == "Likely Include"
+    assert result.reasoning == "fresh"
+    assert calls["count"] == 1
+
+
+def test_json_cache_with_missing_metadata_is_ignored(monkeypatch, tmp_path):
+    auto = _automation(monkeypatch, tmp_path, screening_prompt="screen {text}")
+    context = auto._cache_key_context(
+        kind="screening",
+        text="paper text",
+        prompt={"screening_prompt": auto.screening_prompt, "stage": "Full-text"},
+        stage="Full-text",
+    )
+    stale_file = auto.cache_folder / f"screening_{context['cache_key']}.json"
+    stale_file.write_text(
+        json.dumps({"decision": "Likely Exclude", "reasoning": "stale", "notes": ""}),
         encoding="utf-8",
     )
     calls = {"count": 0}
@@ -111,13 +165,19 @@ def test_audit_ledger_records_screening_miss_and_hit_without_secrets(monkeypatch
     assert [event["cache_hit"] for event in events] == [False, True]
     assert events[0]["kind"] == "screening"
     assert events[0]["model"] == "manual-model"
+    assert events[0]["provider"] == "OpenAI"
+    assert events[0]["app_version"] == __version__
+    assert events[0]["pipeline_version"] == __version__
     assert events[0]["prompt_hash"]
     assert events[0]["text_hash"]
     assert events[0]["advanced_config_hash"]
     assert events[0]["extraction_fields_hash"]
+    assert events[0]["parse_status"] == "ok"
+    assert events[0]["retry_count"] == 0
     assert events[0]["api_tokens_used"] == 11
     assert events[1]["api_tokens_used"] == 0
     assert "secret-test-key" not in auto.audit_ledger.read_text(encoding="utf-8")
+    assert "paper text" not in auto.audit_ledger.read_text(encoding="utf-8")
 
 
 def test_audit_ledger_records_extraction_cache_status(monkeypatch, tmp_path):
