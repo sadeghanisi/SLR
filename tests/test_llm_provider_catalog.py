@@ -4,7 +4,7 @@ import types
 import pytest
 
 import llm_interface
-from llm_interface import LLMManager, OpenAICompatibleProvider, classify_model_stability
+from llm_interface import GeminiProvider, LLMManager, OpenAICompatibleProvider, classify_model_stability
 
 
 def test_manual_model_id_is_accepted_for_openai(monkeypatch):
@@ -132,6 +132,113 @@ def test_gemini_model_stability_classification_supports_reproducibility_warnings
     assert classify_model_stability("gemini-2.5-flash-preview") == "preview"
     assert classify_model_stability("gemini-2.5-flash-latest") == "latest"
     assert classify_model_stability("gemini-exp-1206") == "experimental"
+
+
+def _install_fake_google_genai(monkeypatch, response):
+    google_module = types.ModuleType("google")
+    genai_module = types.ModuleType("google.genai")
+
+    class FakeConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeModels:
+        def __init__(self):
+            self.calls = []
+
+        def generate_content(self, **kwargs):
+            self.calls.append(kwargs)
+            return response
+
+    class FakeClient:
+        last = None
+
+        def __init__(self, api_key=None):
+            self.api_key = api_key
+            self.models = FakeModels()
+            FakeClient.last = self
+
+    genai_module.Client = FakeClient
+    genai_module.types = types.SimpleNamespace(GenerateContentConfig=FakeConfig)
+    google_module.genai = genai_module
+
+    monkeypatch.setitem(sys.modules, "google", google_module)
+    monkeypatch.setitem(sys.modules, "google.genai", genai_module)
+    return FakeClient
+
+
+def test_gemini_provider_uses_supported_google_genai_sdk_and_parts(monkeypatch):
+    class FakeResponse:
+        usage_metadata = types.SimpleNamespace(total_token_count=17)
+        candidates = [
+            types.SimpleNamespace(
+                finish_reason=1,
+                content=types.SimpleNamespace(parts=[types.SimpleNamespace(text="Connection OK")]),
+            )
+        ]
+
+        @property
+        def text(self):
+            raise AssertionError("GeminiProvider should read parts before response.text")
+
+    fake_client = _install_fake_google_genai(monkeypatch, FakeResponse())
+
+    provider = GeminiProvider("test-key", "gemini-manual-model")
+    text, tokens = provider.chat_completion_with_tokens(
+        [{"role": "user", "content": "Reply with exactly: Connection OK"}],
+        max_tokens=20,
+    )
+
+    assert provider._sdk == "google-genai"
+    assert text == "Connection OK"
+    assert tokens == 17
+    call = fake_client.last.models.calls[0]
+    assert call["model"] == "gemini-manual-model"
+    assert call["config"].kwargs["max_output_tokens"] == 1024
+
+
+def test_gemini_provider_reports_empty_candidate_finish_reason(monkeypatch):
+    class FakeResponse:
+        usage_metadata = types.SimpleNamespace(total_token_count=20)
+        candidates = [
+            types.SimpleNamespace(
+                finish_reason=2,
+                content=types.SimpleNamespace(parts=[]),
+            )
+        ]
+
+        @property
+        def text(self):
+            raise ValueError("quick accessor failed")
+
+    _install_fake_google_genai(monkeypatch, FakeResponse())
+    provider = GeminiProvider("test-key", "gemini-2.5-flash")
+
+    with pytest.raises(RuntimeError) as exc:
+        provider.chat_completion_with_tokens([{"role": "user", "content": "Return JSON"}])
+
+    message = str(exc.value)
+    assert "Gemini returned no text parts" in message
+    assert "MAX_TOKENS (2)" in message
+    assert "quick accessor failed" in message
+
+
+def test_gemini_provider_normalizes_proxy_env(monkeypatch):
+    class FakeResponse:
+        usage_metadata = types.SimpleNamespace(total_token_count=1)
+        candidates = [
+            types.SimpleNamespace(
+                finish_reason=1,
+                content=types.SimpleNamespace(parts=[types.SimpleNamespace(text="ok")]),
+            )
+        ]
+
+    _install_fake_google_genai(monkeypatch, FakeResponse())
+    monkeypatch.setenv("http_proxy", "127.0.0.1:10808")
+
+    GeminiProvider("test-key", "gemini-2.5-flash")
+
+    assert llm_interface.os.environ["http_proxy"] == "http://127.0.0.1:10808"
 
 
 def test_unsupported_provider_raises_clear_error():

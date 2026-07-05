@@ -69,6 +69,10 @@ session = {
     "progress": [],
     "progress_lock": threading.Lock(),
     "pdf_display_names": {},
+    "processing_summary": None,
+    "processing_error": "",
+    "processing_report_errors": [],
+    "processing_reports": {},
 }
 
 
@@ -152,6 +156,197 @@ def _load_webapp_settings() -> dict:
         data.pop("api_key", None)
         SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return data
+
+
+def _decision_bucket(decision: str) -> str:
+    d = (decision or "").lower()
+    if "error" in d or "fail" in d:
+        return "failed"
+    if "include" in d:
+        return "included"
+    if "exclude" in d:
+        return "excluded"
+    if "flag" in d or "human" in d or "review" in d:
+        return "flagged"
+    return "other"
+
+
+def _processing_counters(screening_results: list[dict], total_files: int = 0) -> dict:
+    counters = {
+        "total_files": total_files or len(screening_results),
+        "processed_files": len(screening_results),
+        "included": 0,
+        "excluded": 0,
+        "flagged": 0,
+        "failed": 0,
+    }
+    for result in screening_results:
+        bucket = _decision_bucket(result.get("decision", ""))
+        if bucket in counters:
+            counters[bucket] += 1
+    return counters
+
+
+def _screening_records(auto) -> list[dict]:
+    display_names = session.get("pdf_display_names", {})
+    records = []
+    for result in getattr(auto, "screening_results", []):
+        record = asdict(result) if hasattr(result, "__dataclass_fields__") else dict(result)
+        filename = record.get("filename", "")
+        record["server_filename"] = filename
+        record["display_filename"] = display_names.get(filename, filename)
+        record.setdefault("title", "")
+        record.setdefault("reasoning", "")
+        record.setdefault("rationale", record.get("reasoning", ""))
+        record.setdefault("error", record.get("reasoning", "") if _decision_bucket(record.get("decision", "")) == "failed" else "")
+        if hasattr(auto, "get_paper_text_metadata"):
+            meta = auto.get_paper_text_metadata(filename)
+            if meta:
+                record["text_hash"] = meta.get("text_hash", "")
+                record["text_cache_path"] = meta.get("text_cache_path", "")
+                record["extraction_method"] = meta.get("extraction_method", "")
+                record["extraction_status"] = meta.get("extraction_status", "")
+                record["extracted_char_count"] = meta.get("extracted_char_count", 0)
+        records.append(record)
+    return records
+
+
+def _extraction_records(auto) -> list[dict]:
+    display_names = session.get("pdf_display_names", {})
+    records = []
+    for result in getattr(auto, "extraction_results", []):
+        if hasattr(result, "__dataclass_fields__"):
+            record = {
+                "filename": result.filename,
+                "fields": result.fields,
+                "processing_time": round(result.processing_time, 2),
+                "api_tokens_used": result.api_tokens_used,
+            }
+        else:
+            record = dict(result)
+            if "processing_time" in record:
+                record["processing_time"] = round(record["processing_time"], 2)
+        filename = record.get("filename", "")
+        record["server_filename"] = filename
+        record["display_filename"] = display_names.get(filename, filename)
+        records.append(record)
+    return records
+
+
+def _path_exists(path_value) -> bool:
+    return bool(path_value) and Path(path_value).exists()
+
+
+def _processing_report_state(auto) -> dict:
+    return {
+        "screening_csv": {
+            "path": str(getattr(auto, "screening_csv", "")),
+            "exists": _path_exists(getattr(auto, "screening_csv", "")),
+        },
+        "screening_excel": {
+            "path": str(getattr(auto, "screening_excel", "")),
+            "exists": _path_exists(getattr(auto, "screening_excel", "")),
+        },
+        "extraction_csv": {
+            "path": str(getattr(auto, "extraction_csv", "")),
+            "exists": _path_exists(getattr(auto, "extraction_csv", "")),
+        },
+        "extraction_excel": {
+            "path": str(getattr(auto, "extraction_excel", "")),
+            "exists": _path_exists(getattr(auto, "extraction_excel", "")),
+        },
+        "summary_report": {
+            "path": str(getattr(auto, "summary_report", "")),
+            "exists": _path_exists(getattr(auto, "summary_report", "")),
+        },
+        "audit_ledger": {
+            "path": str(getattr(auto, "audit_ledger", "")),
+            "exists": _path_exists(getattr(auto, "audit_ledger", "")),
+        },
+    }
+
+
+def _ensure_processing_reports(auto) -> tuple[dict, list[str]]:
+    errors = []
+
+    if getattr(auto, "screening_results", []):
+        for writer_name, path_name in (
+            ("write_screening_csv", "screening_csv"),
+            ("write_screening_excel", "screening_excel"),
+        ):
+            path_value = getattr(auto, path_name, "")
+            if path_value and not Path(path_value).exists() and hasattr(auto, writer_name):
+                try:
+                    getattr(auto, writer_name)()
+                except Exception as exc:
+                    errors.append(f"{path_name}: {exc}")
+            if path_value and not Path(path_value).exists():
+                errors.append(f"{path_name} was not generated")
+
+    if getattr(auto, "extraction_results", []):
+        for writer_name, path_name in (
+            ("write_extraction_csv", "extraction_csv"),
+            ("write_extraction_excel", "extraction_excel"),
+        ):
+            path_value = getattr(auto, path_name, "")
+            if path_value and not Path(path_value).exists() and hasattr(auto, writer_name):
+                try:
+                    getattr(auto, writer_name)()
+                except Exception as exc:
+                    errors.append(f"{path_name}: {exc}")
+            if path_value and not Path(path_value).exists():
+                errors.append(f"{path_name} was not generated")
+
+    summary_path = getattr(auto, "summary_report", "")
+    if summary_path and not Path(summary_path).exists() and hasattr(auto, "_generate_summary"):
+        try:
+            auto._generate_summary()
+        except Exception as exc:
+            errors.append(f"summary_report: {exc}")
+        if not Path(summary_path).exists():
+            errors.append("summary_report was not generated")
+
+    return _processing_report_state(auto), errors
+
+
+def _processing_payload(auto, active: bool) -> dict:
+    if not auto:
+        return {
+            "active": active,
+            "stats": {},
+            "counters": _processing_counters([]),
+            "screening_count": 0,
+            "extraction_count": 0,
+            "reports": {},
+            "report_errors": session.get("processing_report_errors", []),
+            "error": session.get("processing_error", ""),
+        }
+
+    screening = _screening_records(auto)
+    extraction = _extraction_records(auto)
+    stats = dict(getattr(auto, "stats", {}))
+    counters = _processing_counters(screening, stats.get("total_files", 0))
+    stats.update({
+        "total_files": counters["total_files"],
+        "processed_files": counters["processed_files"],
+        "likely_include": counters["included"],
+        "likely_exclude": counters["excluded"],
+        "flag_for_review": counters["flagged"],
+        "flag_for_human_review": 0,
+        "failed_files": counters["failed"],
+    })
+    reports = session.get("processing_reports") or _processing_report_state(auto)
+    return {
+        "active": active,
+        "stats": stats,
+        "counters": counters,
+        "screening_count": len(screening),
+        "extraction_count": len(extraction),
+        "reports": reports,
+        "report_errors": session.get("processing_report_errors", []),
+        "error": session.get("processing_error", ""),
+        "summary": session.get("processing_summary"),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -608,6 +803,10 @@ def api_start_processing():
 
     session["stop_event"].clear()
     session["progress"] = []
+    session["processing_summary"] = None
+    session["processing_error"] = ""
+    session["processing_report_errors"] = []
+    session["processing_reports"] = {}
 
     config = {
         "api_key": d.get("api_key", ""),
@@ -642,8 +841,17 @@ def api_start_processing():
     def _run():
         try:
             summary = auto.process_pdfs()
+            reports, report_errors = _ensure_processing_reports(auto)
+            session["processing_reports"] = reports
+            session["processing_report_errors"] = report_errors
+            session["processing_summary"] = summary
+            if report_errors:
+                summary = dict(summary)
+                summary["report_errors"] = report_errors
+                _push("processing_warning", {"warnings": report_errors, "reports": reports})
             _push("processing_done", summary)
         except Exception as e:
+            session["processing_error"] = str(e)
             _push("processing_error", {"error": str(e)})
 
     t = threading.Thread(target=_run, daemon=True)
@@ -664,45 +872,42 @@ def api_stop_processing():
 def api_processing_status():
     auto = session.get("automation")
     if not auto:
-        return jsonify({"active": False})
-
-    stats = dict(auto.stats)
-    screening = [asdict(r) for r in auto.screening_results]
-    extraction = []
-    for r in auto.extraction_results:
-        extraction.append({
-            "filename": r.filename,
-            "fields": r.fields,
-            "processing_time": r.processing_time,
-            "api_tokens_used": r.api_tokens_used,
-        })
+        return jsonify(_processing_payload(None, False))
 
     running = session["processing_thread"] and session["processing_thread"].is_alive()
-    return jsonify({
-        "active": running,
-        "stats": stats,
-        "screening_count": len(screening),
-        "extraction_count": len(extraction),
-    })
+    return jsonify(_processing_payload(auto, bool(running)))
+
+
+@app.route("/api/progress", methods=["GET"])
+def api_progress():
+    return api_processing_status()
 
 
 @app.route("/api/processing/results", methods=["GET"])
 def api_processing_results():
     auto = session.get("automation")
     if not auto:
-        return jsonify({"screening": [], "extraction": []})
-
-    screening = [asdict(r) for r in auto.screening_results]
-    extraction = []
-    for r in auto.extraction_results:
-        extraction.append({
-            "filename": r.filename,
-            "fields": r.fields,
-            "processing_time": round(r.processing_time, 2),
-            "api_tokens_used": r.api_tokens_used,
+        return jsonify({
+            "screening": [],
+            "extraction": [],
+            "counters": _processing_counters([]),
+            "reports": {},
+            "report_errors": session.get("processing_report_errors", []),
+            "error": session.get("processing_error", ""),
         })
 
-    return jsonify({"screening": screening, "extraction": extraction})
+    screening = _screening_records(auto)
+    extraction = _extraction_records(auto)
+    stats = dict(getattr(auto, "stats", {}))
+    return jsonify({
+        "screening": screening,
+        "extraction": extraction,
+        "counters": _processing_counters(screening, stats.get("total_files", 0)),
+        "reports": session.get("processing_reports") or _processing_report_state(auto),
+        "report_errors": session.get("processing_report_errors", []),
+        "error": session.get("processing_error", ""),
+        "summary": session.get("processing_summary"),
+    })
 
 
 @app.route("/api/processing/export", methods=["POST"])
@@ -719,7 +924,9 @@ def api_export_processing():
     elif auto.screening_excel and Path(auto.screening_excel).exists():
         return send_file(str(auto.screening_excel), as_attachment=True)
     else:
-        return jsonify({"error": "Export file not found"}), 404
+        report_errors = session.get("processing_report_errors", [])
+        detail = "; ".join(report_errors) if report_errors else "Export file not found"
+        return jsonify({"error": detail}), 404
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -741,7 +948,10 @@ def sse_events():
             # Also stream processing stats if active
             auto = session.get("automation")
             if auto:
-                stats = dict(auto.stats)
+                stats = _processing_payload(
+                    auto,
+                    bool(session["processing_thread"] and session["processing_thread"].is_alive()),
+                )["stats"]
                 yield f"data: {json.dumps({'type': 'stats', 'data': stats})}\n\n"
 
             time.sleep(1)

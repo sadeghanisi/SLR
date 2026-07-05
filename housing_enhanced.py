@@ -132,6 +132,17 @@ class ExtractionResult:
     api_tokens_used: int   = 0
 
 
+@dataclass
+class TextCacheMetadata:
+    original_filename:    str
+    text_hash:            str
+    text_cache_path:      str
+    extraction_method:    str = "unknown"
+    extraction_status:    str = "unknown"
+    extracted_char_count: int = 0
+    page_count:           Optional[int] = None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Robust JSON parser
 # ─────────────────────────────────────────────────────────────────────────────
@@ -250,6 +261,8 @@ class SystematicReviewAutomation:
         self.cache_folder = self.output_folder / 'cache'
         if self.cache_enabled:
             self.cache_folder.mkdir(exist_ok=True)
+        self.text_cache_folder = self.output_folder / 'text_cache'
+        self.text_cache_folder.mkdir(exist_ok=True)
 
         # Timestamped output files
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -263,7 +276,9 @@ class SystematicReviewAutomation:
         # Results
         self.screening_results:  List[ScreeningResult]  = []
         self.extraction_results: List[ExtractionResult] = []
-        self._paper_texts:       Dict[str, str]         = {}  # filename → full text/md for GUI
+        self._paper_texts:       Dict[str, str]         = {}  # legacy compatibility; not populated
+        self._paper_text_metadata: Dict[str, Dict[str, Any]] = {}
+        self._last_text_extraction_metadata: Dict[str, Dict[str, Any]] = {}
 
         # Thread-safe stats
         self._lock = threading.Lock()
@@ -389,6 +404,7 @@ class SystematicReviewAutomation:
         error: str = None,
     ):
         provider_profile = cache_context.get('provider_profile') or {}
+        text_cache_metadata = self.get_paper_text_metadata(filename)
         event = {
             'timestamp': datetime.now().isoformat(timespec='seconds'),
             'schema_version': CACHE_SCHEMA_VERSION,
@@ -412,6 +428,8 @@ class SystematicReviewAutomation:
             'parse_status': parse_status,
             'retry_count': retry_count,
         }
+        if text_cache_metadata:
+            event['text_cache'] = text_cache_metadata
         if error:
             event['error'] = error
         try:
@@ -486,6 +504,103 @@ class SystematicReviewAutomation:
         except Exception as e:
             self.logger.warning(f"Cache write: {e}")
 
+    # ── Disk-backed extracted text cache ────────────────────────────────────
+
+    def _record_text_extraction_metadata(
+        self,
+        pdf_path: Path,
+        *,
+        method: str,
+        status: str,
+        text: str = "",
+        page_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        metadata = {
+            'original_filename': pdf_path.name,
+            'extraction_method': method,
+            'extraction_status': status,
+            'extracted_char_count': len(text or ""),
+            'page_count': page_count,
+        }
+        self._last_text_extraction_metadata[pdf_path.name] = metadata
+        return metadata
+
+    def _store_paper_text_cache(
+        self,
+        filename: str,
+        text: str,
+        extraction_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        extraction_metadata = extraction_metadata or {}
+        text_hash = _hash_utf8(text or "")
+        cache_path = self.text_cache_folder / f"{text_hash}.txt"
+        try:
+            self.text_cache_folder.mkdir(parents=True, exist_ok=True)
+            if not cache_path.exists():
+                cache_path.write_text(text, encoding='utf-8')
+        except Exception as e:
+            self.logger.warning(f"Text cache write failed ({filename}): {e}")
+
+        metadata = TextCacheMetadata(
+            original_filename=filename,
+            text_hash=text_hash,
+            text_cache_path=str(cache_path),
+            extraction_method=extraction_metadata.get('extraction_method', 'unknown'),
+            extraction_status=extraction_metadata.get('extraction_status', 'ok'),
+            extracted_char_count=len(text),
+            page_count=extraction_metadata.get('page_count'),
+        )
+        self._paper_text_metadata[filename] = asdict(metadata)
+        metadata_path = self.text_cache_folder / f"{text_hash}.json"
+        try:
+            metadata_path.write_text(
+                _canonical_json(self._paper_text_metadata[filename]),
+                encoding='utf-8',
+            )
+        except Exception as e:
+            self.logger.warning(f"Text cache metadata write failed ({filename}): {e}")
+        return dict(self._paper_text_metadata[filename])
+
+    def _record_paper_text_failure(
+        self,
+        filename: str,
+        extraction_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        extraction_metadata = extraction_metadata or {}
+        metadata = TextCacheMetadata(
+            original_filename=filename,
+            text_hash="",
+            text_cache_path="",
+            extraction_method=extraction_metadata.get('extraction_method', 'unknown'),
+            extraction_status=extraction_metadata.get('extraction_status', 'error'),
+            extracted_char_count=0,
+            page_count=extraction_metadata.get('page_count'),
+        )
+        self._paper_text_metadata[filename] = asdict(metadata)
+        return dict(self._paper_text_metadata[filename])
+
+    def get_paper_text_metadata(self, filename: str) -> Dict[str, Any]:
+        return dict(self._paper_text_metadata.get(filename, {}))
+
+    def get_paper_text(self, filename: str) -> str:
+        metadata = self._paper_text_metadata.get(filename)
+        if not metadata:
+            return self._paper_texts.get(filename, "")
+
+        cache_path_value = metadata.get('text_cache_path')
+        if not cache_path_value:
+            return "(Paper text not available; extraction did not produce cached text.)"
+
+        try:
+            cache_path = Path(cache_path_value).resolve()
+            cache_path.relative_to(self.text_cache_folder.resolve())
+            return cache_path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            return "(Paper text cache missing; rerun processing to rebuild it.)"
+        except Exception as e:
+            self.logger.warning(f"Text cache read failed ({filename}): {e}")
+            return "(Paper text unavailable; text cache could not be read.)"
+
     # ── Text utilities ───────────────────────────────────────────────────────
 
     def _smart_truncate(self, text: str, max_chars: int) -> str:
@@ -541,6 +656,12 @@ class SystematicReviewAutomation:
             if md_text.strip():
                 if self.strip_references:
                     md_text = self._strip_references_from_md(md_text)
+                self._record_text_extraction_metadata(
+                    pdf_path,
+                    method='pymupdf4llm',
+                    status='ok',
+                    text=md_text,
+                )
                 self.logger.info(f"PyMuPDF4LLM: {len(md_text):,} chars from {pdf_path.name}")
                 return md_text, True
         except ImportError:
@@ -552,11 +673,18 @@ class SystematicReviewAutomation:
         try:
             import pdfplumber
             with pdfplumber.open(pdf_path) as pdf:
-                pages = [p.extract_text() or "" for p in pdf.pages]
-            text = "\n".join(pages)
+                page_count = len(pdf.pages)
+                text = "\n".join((p.extract_text() or "") for p in pdf.pages)
             if text.strip():
                 if self.strip_references:
                     text = self._strip_references_from_md(text)
+                self._record_text_extraction_metadata(
+                    pdf_path,
+                    method='pdfplumber',
+                    status='ok',
+                    text=text,
+                    page_count=page_count,
+                )
                 self.logger.info(f"pdfplumber: {len(text):,} chars from {pdf_path.name}")
                 return text, True
         except ImportError:
@@ -570,18 +698,44 @@ class SystematicReviewAutomation:
             with open(pdf_path, 'rb') as fh:
                 reader = PdfReader(fh)
                 if reader.is_encrypted:
+                    self._record_text_extraction_metadata(
+                        pdf_path,
+                        method='pypdf2',
+                        status='encrypted',
+                        page_count=len(reader.pages),
+                    )
                     return "Error: PDF is encrypted", False
-                text = ""
+                page_count = len(reader.pages)
+                page_texts = []
                 for i, page in enumerate(reader.pages):
                     try:
-                        text += (page.extract_text() or "") + "\n"
+                        page_texts.append(page.extract_text() or "")
                     except Exception as pe:
                         self.logger.warning(f"Page {i+1} skip in {pdf_path.name}: {pe}")
+                text = "\n".join(page_texts)
             if text.strip():
+                self._record_text_extraction_metadata(
+                    pdf_path,
+                    method='pypdf2',
+                    status='ok',
+                    text=text,
+                    page_count=page_count,
+                )
                 self.logger.info(f"PyPDF2: {len(text):,} chars from {pdf_path.name}")
                 return text, True
+            self._record_text_extraction_metadata(
+                pdf_path,
+                method='pypdf2',
+                status='no_extractable_text',
+                page_count=page_count,
+            )
             return "Error: No extractable text (possibly a scanned/image-only PDF)", False
         except Exception as e:
+            self._record_text_extraction_metadata(
+                pdf_path,
+                method='unknown',
+                status='error',
+            )
             return f"Error reading PDF: {e}", False
 
     def _strip_references_from_md(self, text: str) -> str:
@@ -868,12 +1022,13 @@ class SystematicReviewAutomation:
 
         self.logger.info(f"Processing: {pdf_file.name}")
         text, ok = self.extract_text_from_pdf(pdf_file)
+        extraction_metadata = self._last_text_extraction_metadata.get(pdf_file.name, {})
 
         if ok:
-            # Cache the full text so the GUI can display it in the quote-verifier panel
-            self._paper_texts[pdf_file.name] = text
+            self._store_paper_text_cache(pdf_file.name, text, extraction_metadata)
 
         if not ok:
+            self._record_paper_text_failure(pdf_file.name, extraction_metadata)
             return ScreeningResult(
                 filename=pdf_file.name,
                 decision="Error",

@@ -1802,7 +1802,10 @@ class SLRAutomationGUI:
         extract_rec = next(
             (r for r in self.automation_instance.extraction_results if r.filename == fn), None
         )
-        paper_text = self.automation_instance._paper_texts.get(fn, "")
+        if hasattr(self.automation_instance, "get_paper_text"):
+            paper_text = self.automation_instance.get_paper_text(fn)
+        else:
+            paper_text = self.automation_instance._paper_texts.get(fn, "")
 
         win = tk.Toplevel(self.root)
         win.title(f"Detail — {fn}")

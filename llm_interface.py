@@ -11,6 +11,8 @@ __version__ = "3.4.0"
 import copy
 import json
 import logging
+import os
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -299,6 +301,17 @@ def _join_url(base_url: str, endpoint: str) -> str:
     return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
 
 
+def _normalize_proxy_env_urls() -> None:
+    """Google's SDK expects proxy env vars to include a URI scheme."""
+    for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+        value = (os.environ.get(key) or "").strip()
+        if not value:
+            continue
+        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", value):
+            continue
+        os.environ[key] = f"http://{value}"
+
+
 def classify_model_stability(model_id: str) -> str:
     """Classify model IDs for reproducibility warnings, especially Gemini."""
     value = (model_id or "").lower()
@@ -466,15 +479,114 @@ class AnthropicProvider(LLMProvider):
 
 
 class GeminiProvider(LLMProvider):
+    FINISH_REASON_LABELS = {
+        0: "FINISH_REASON_UNSPECIFIED",
+        1: "STOP",
+        2: "MAX_TOKENS",
+        3: "SAFETY",
+        4: "RECITATION",
+        5: "OTHER",
+        6: "BLOCKLIST",
+        7: "PROHIBITED_CONTENT",
+        8: "SPII",
+        9: "MALFORMED_FUNCTION_CALL",
+        10: "IMAGE_SAFETY",
+    }
+
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash", **kwargs):
         super().__init__(api_key, model, **kwargs)
+        _normalize_proxy_env_urls()
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
+            from google import genai
+            from google.genai import types as genai_types
+
             self.genai = genai
-            self._client = genai.GenerativeModel(model)
+            self.genai_types = genai_types
+            self._client = genai.Client(api_key=api_key)
+            self._sdk = "google-genai"
         except ImportError:
-            raise ImportError("Run: pip install google-generativeai")
+            try:
+                import google.generativeai as genai
+
+                genai.configure(api_key=api_key)
+                self.genai = genai
+                self.genai_types = None
+                self._client = genai.GenerativeModel(model)
+                self._sdk = "google-generativeai"
+            except ImportError as exc:
+                raise ImportError("Run: pip install google-genai") from exc
+
+    @staticmethod
+    def _attr(obj: Any, name: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
+    @classmethod
+    def _finish_reason(cls, candidate: Any) -> str:
+        reason = cls._attr(candidate, "finish_reason")
+        if reason is None:
+            reason = cls._attr(candidate, "finishReason")
+        if reason is None:
+            return "unknown"
+        if hasattr(reason, "name"):
+            return str(reason.name)
+        try:
+            numeric = int(reason)
+            label = cls.FINISH_REASON_LABELS.get(numeric)
+            return f"{label} ({numeric})" if label else str(numeric)
+        except (TypeError, ValueError):
+            return str(reason)
+
+    @classmethod
+    def _usage_tokens(cls, response: Any) -> int:
+        usage = cls._attr(response, "usage_metadata") or cls._attr(response, "usageMetadata")
+        if not usage:
+            return 0
+        for name in ("total_token_count", "totalTokenCount"):
+            value = cls._attr(usage, name)
+            if value is not None:
+                return int(value)
+        input_tokens = cls._attr(usage, "prompt_token_count", cls._attr(usage, "promptTokenCount", 0)) or 0
+        output_tokens = cls._attr(usage, "candidates_token_count", cls._attr(usage, "candidatesTokenCount", 0)) or 0
+        return int(input_tokens) + int(output_tokens)
+
+    @classmethod
+    def _response_text(cls, response: Any) -> str:
+        pieces: List[str] = []
+        candidates = cls._attr(response, "candidates", []) or []
+        finish_reasons = []
+
+        for candidate in candidates:
+            finish_reasons.append(cls._finish_reason(candidate))
+            content = cls._attr(candidate, "content")
+            parts = cls._attr(content, "parts", []) if content is not None else []
+            for part in parts or []:
+                text = cls._attr(part, "text")
+                if text:
+                    pieces.append(str(text))
+
+        if pieces:
+            return "\n".join(pieces)
+
+        text_error = ""
+        try:
+            quick_text = cls._attr(response, "text")
+            if quick_text:
+                return str(quick_text)
+        except Exception as exc:
+            text_error = str(exc)
+
+        reason = ", ".join(r for r in finish_reasons if r) or "unknown"
+        guidance = "Gemini returned no text parts"
+        if "MAX_TOKENS" in reason:
+            guidance += "; increase Gemini max output tokens or use a model/configuration with less internal reasoning"
+        elif "SAFETY" in reason or "PROHIBITED" in reason:
+            guidance += "; review the prompt and Gemini safety response"
+        detail = f"finish_reason={reason}"
+        if text_error:
+            detail += f"; text_accessor_error={text_error}"
+        raise RuntimeError(f"{guidance} ({detail}).")
 
     def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
         try:
@@ -490,13 +602,27 @@ class GeminiProvider(LLMProvider):
                     parts.append(f"[ASSISTANT]: {content}")
             prompt = "\n\n".join(parts)
 
-            cfg = self.genai.GenerationConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-            )
-            resp = self._client.generate_content(prompt, generation_config=cfg)
-            tokens = resp.usage_metadata.total_token_count if resp.usage_metadata else 0
-            return resp.text, tokens
+            # Gemini 2.5 models may spend part of the output budget internally.
+            # Tiny budgets, such as connection-test prompts, can otherwise
+            # finish with MAX_TOKENS before any visible text part is returned.
+            effective_max_tokens = max(int(max_tokens or 0), 1024)
+            if self._sdk == "google-genai":
+                cfg = self.genai_types.GenerateContentConfig(
+                    temperature=temperature,
+                    max_output_tokens=effective_max_tokens,
+                )
+                resp = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=cfg,
+                )
+            else:
+                cfg = self.genai.GenerationConfig(
+                    temperature=temperature,
+                    max_output_tokens=effective_max_tokens,
+                )
+                resp = self._client.generate_content(prompt, generation_config=cfg)
+            return self._response_text(resp), self._usage_tokens(resp)
         except Exception as e:
             logger.error(f"Gemini error: {e}")
             raise
@@ -920,7 +1046,7 @@ def get_install_instructions() -> Dict[str, str]:
     return {
         "OpenAI": "pip install openai",
         "Anthropic (Claude)": "pip install anthropic",
-        "Google Gemini": "pip install google-generativeai",
+        "Google Gemini": "pip install google-genai",
         "OpenRouter": "Uses the OpenAI-compatible adapter; no extra package",
         "DeepSeek": "Uses the OpenAI-compatible adapter; no extra package",
         "Mistral": "Uses the OpenAI-compatible adapter; no extra package",

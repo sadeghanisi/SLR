@@ -16,6 +16,22 @@ def _automation(monkeypatch, tmp_path, **kwargs):
     )
 
 
+def _fake_screening_call(decision, reasoning, calls):
+    def fake_llm_call(messages, **kwargs):
+        calls["count"] += 1
+        return json.dumps({"decision": decision, "reasoning": reasoning, "notes": ""}), 7
+
+    return fake_llm_call
+
+
+def _fake_extraction_call(fields, calls):
+    def fake_llm_call(messages, **kwargs):
+        calls["count"] += 1
+        return json.dumps(fields), 13
+
+    return fake_llm_call
+
+
 def test_cache_key_includes_provider_model_prompt_fields_config_and_schema(monkeypatch, tmp_path):
     base = _automation(
         monkeypatch,
@@ -140,6 +156,108 @@ def test_json_cache_with_missing_metadata_is_ignored(monkeypatch, tmp_path):
     assert calls["count"] == 1
 
 
+def test_changed_screening_prompt_does_not_reuse_old_screening_cache(monkeypatch, tmp_path):
+    first = _automation(monkeypatch, tmp_path, screening_prompt="first prompt {text}")
+    first_calls = {"count": 0}
+    monkeypatch.setattr(
+        first,
+        "_llm_call",
+        _fake_screening_call("Likely Exclude", "first prompt result", first_calls),
+    )
+
+    first_result = first.screen_article("paper text", "paper.pdf")
+
+    second = _automation(monkeypatch, tmp_path, screening_prompt="second prompt {text}")
+    second_calls = {"count": 0}
+    monkeypatch.setattr(
+        second,
+        "_llm_call",
+        _fake_screening_call("Likely Include", "second prompt result", second_calls),
+    )
+
+    second_result = second.screen_article("paper text", "paper.pdf")
+
+    assert first_result.reasoning == "first prompt result"
+    assert second_result.reasoning == "second prompt result"
+    assert first_calls["count"] == 1
+    assert second_calls["count"] == 1
+
+
+def test_changed_provider_does_not_reuse_old_screening_cache(monkeypatch, tmp_path):
+    first = _automation(monkeypatch, tmp_path, llm_provider="OpenAI", llm_model="same-model")
+    first_calls = {"count": 0}
+    monkeypatch.setattr(
+        first,
+        "_llm_call",
+        _fake_screening_call("Likely Exclude", "openai result", first_calls),
+    )
+
+    first.screen_article("paper text", "paper.pdf")
+
+    second = _automation(monkeypatch, tmp_path, llm_provider="OpenRouter", llm_model="same-model")
+    second_calls = {"count": 0}
+    monkeypatch.setattr(
+        second,
+        "_llm_call",
+        _fake_screening_call("Likely Include", "openrouter result", second_calls),
+    )
+
+    result = second.screen_article("paper text", "paper.pdf")
+
+    assert result.reasoning == "openrouter result"
+    assert first_calls["count"] == 1
+    assert second_calls["count"] == 1
+
+
+def test_changed_model_does_not_reuse_old_screening_cache(monkeypatch, tmp_path):
+    first = _automation(monkeypatch, tmp_path, llm_provider="OpenAI", llm_model="model-a")
+    first_calls = {"count": 0}
+    monkeypatch.setattr(
+        first,
+        "_llm_call",
+        _fake_screening_call("Likely Exclude", "model-a result", first_calls),
+    )
+
+    first.screen_article("paper text", "paper.pdf")
+
+    second = _automation(monkeypatch, tmp_path, llm_provider="OpenAI", llm_model="model-b")
+    second_calls = {"count": 0}
+    monkeypatch.setattr(
+        second,
+        "_llm_call",
+        _fake_screening_call("Likely Include", "model-b result", second_calls),
+    )
+
+    result = second.screen_article("paper text", "paper.pdf")
+
+    assert result.reasoning == "model-b result"
+    assert first_calls["count"] == 1
+    assert second_calls["count"] == 1
+
+
+def test_title_abstract_and_full_text_screening_do_not_collide(monkeypatch, tmp_path):
+    auto = _automation(monkeypatch, tmp_path, screening_prompt="screen {text}")
+    calls = {"count": 0}
+    responses = [
+        {"decision": "Likely Exclude", "reasoning": "title abstract result", "notes": ""},
+        {"decision": "Likely Include", "reasoning": "full text result", "notes": ""},
+    ]
+
+    def fake_llm_call(messages, **kwargs):
+        response = responses[calls["count"]]
+        calls["count"] += 1
+        return json.dumps(response), 7
+
+    monkeypatch.setattr(auto, "_llm_call", fake_llm_call)
+
+    title_result = auto.screen_article("paper text", "paper.pdf", stage="Title/Abstract")
+    full_result = auto.screen_article("paper text", "paper.pdf", stage="Full-text")
+
+    assert title_result.reasoning == "title abstract result"
+    assert full_result.reasoning == "full text result"
+    assert calls["count"] == 2
+
+
 def test_audit_ledger_records_screening_miss_and_hit_without_secrets(monkeypatch, tmp_path):
     auto = _automation(monkeypatch, tmp_path, screening_prompt="screen {text}", llm_model="manual-model")
     calls = {"count": 0}
@@ -207,3 +325,96 @@ def test_audit_ledger_records_extraction_cache_status(monkeypatch, tmp_path):
     assert [event["cache_hit"] for event in events] == [False, True]
     assert events[0]["api_tokens_used"] == 23
     assert events[1]["api_tokens_used"] == 0
+
+
+def test_changed_extraction_prompt_does_not_reuse_old_extraction_cache(monkeypatch, tmp_path):
+    first = _automation(monkeypatch, tmp_path, extraction_prompt="extract title from {text}")
+    monkeypatch.setattr(first, "_generate_dynamic_schema", lambda: None)
+    first_calls = {"count": 0}
+    monkeypatch.setattr(
+        first,
+        "_llm_call",
+        _fake_extraction_call({"title": "Old prompt", "title_quote": "Old prompt"}, first_calls),
+    )
+
+    first.extract_data("paper text", "paper.pdf")
+
+    second = _automation(monkeypatch, tmp_path, extraction_prompt="extract verified title from {text}")
+    monkeypatch.setattr(second, "_generate_dynamic_schema", lambda: None)
+    second_calls = {"count": 0}
+    monkeypatch.setattr(
+        second,
+        "_llm_call",
+        _fake_extraction_call({"title": "New prompt", "title_quote": "New prompt"}, second_calls),
+    )
+
+    result = second.extract_data("paper text", "paper.pdf")
+
+    assert result.fields["title"] == "New prompt"
+    assert first_calls["count"] == 1
+    assert second_calls["count"] == 1
+
+
+def test_changed_extraction_fields_do_not_reuse_old_extraction_cache(monkeypatch, tmp_path):
+    first = _automation(monkeypatch, tmp_path, extraction_fields=["title"])
+    monkeypatch.setattr(first, "_generate_dynamic_schema", lambda: None)
+    first_calls = {"count": 0}
+    monkeypatch.setattr(
+        first,
+        "_llm_call",
+        _fake_extraction_call({"title": "Title A", "title_quote": "Title A"}, first_calls),
+    )
+
+    first.extract_data("paper text", "paper.pdf")
+
+    second = _automation(monkeypatch, tmp_path, extraction_fields=["title", "sample_size"])
+    monkeypatch.setattr(second, "_generate_dynamic_schema", lambda: None)
+    second_calls = {"count": 0}
+    monkeypatch.setattr(
+        second,
+        "_llm_call",
+        _fake_extraction_call(
+            {
+                "title": "Title B",
+                "title_quote": "Title B",
+                "sample_size": "42",
+                "sample_size_quote": "42",
+            },
+            second_calls,
+        ),
+    )
+
+    result = second.extract_data("paper text", "paper.pdf")
+
+    assert result.fields["title"] == "Title B"
+    assert result.fields["sample_size"] == "42"
+    assert first_calls["count"] == 1
+    assert second_calls["count"] == 1
+
+
+def test_changed_advanced_config_does_not_reuse_old_extraction_cache(monkeypatch, tmp_path):
+    first = _automation(monkeypatch, tmp_path, advanced_config={"max_text_chars": 1000})
+    monkeypatch.setattr(first, "_generate_dynamic_schema", lambda: None)
+    first_calls = {"count": 0}
+    monkeypatch.setattr(
+        first,
+        "_llm_call",
+        _fake_extraction_call({"title": "Config A", "title_quote": "Config A"}, first_calls),
+    )
+
+    first.extract_data("paper text", "paper.pdf")
+
+    second = _automation(monkeypatch, tmp_path, advanced_config={"max_text_chars": 2000})
+    monkeypatch.setattr(second, "_generate_dynamic_schema", lambda: None)
+    second_calls = {"count": 0}
+    monkeypatch.setattr(
+        second,
+        "_llm_call",
+        _fake_extraction_call({"title": "Config B", "title_quote": "Config B"}, second_calls),
+    )
+
+    result = second.extract_data("paper text", "paper.pdf")
+
+    assert result.fields["title"] == "Config B"
+    assert first_calls["count"] == 1
+    assert second_calls["count"] == 1

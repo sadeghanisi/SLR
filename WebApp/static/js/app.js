@@ -766,13 +766,26 @@
             const r = await api("/api/processing/status");
             const d = await r.json();
             updateProcessMonitor(d);
-            if (!d.active) {
+            if (d.error) {
               clearInterval(pollId);
-              logLine("Processing complete.");
+              logLine("Processing failed: " + d.error);
               setButtonLoading($("#startProcessBtn"), false);
               $("#stopProcessBtn").disabled = true;
               loadResults();
-              showToast("Processing complete", "success");
+              showToast("Processing failed: " + d.error, "error");
+              return;
+            }
+            if (!d.active) {
+              clearInterval(pollId);
+              if (d.report_errors && d.report_errors.length) {
+                logLine("Processing completed, but report generation needs attention: " + d.report_errors.join("; "));
+              } else {
+                logLine("Processing complete.");
+              }
+              setButtonLoading($("#startProcessBtn"), false);
+              $("#stopProcessBtn").disabled = true;
+              loadResults();
+              showToast(d.report_errors && d.report_errors.length ? "Processing complete with report warnings" : "Processing complete", d.report_errors && d.report_errors.length ? "error" : "success");
             }
           } catch (e) { /* ignore */ }
         }, 2000);
@@ -796,8 +809,9 @@
 
   function updateProcessMonitor(d) {
     const stats = d.stats || {};
-    const total = stats.total_files || 1;
-    const processed = stats.processed_files || 0;
+    const counters = d.counters || {};
+    const total = counters.total_files || stats.total_files || 1;
+    const processed = counters.processed_files ?? stats.processed_files ?? 0;
     const pct = Math.round((processed / total) * 100);
 
     const bar = $("#processProgressBar");
@@ -805,9 +819,9 @@
     $("#processProgressText").textContent = `${processed}/${total} (${pct}%)`;
 
     $("#kpiProcessed").textContent = processed;
-    $("#kpiInclude").textContent = stats.likely_include || 0;
-    $("#kpiExclude").textContent = stats.likely_exclude || 0;
-    $("#kpiFlag").textContent = (stats.flag_for_review || 0) + (stats.flag_for_human_review || 0);
+    $("#kpiInclude").textContent = counters.included ?? stats.likely_include ?? 0;
+    $("#kpiExclude").textContent = counters.excluded ?? stats.likely_exclude ?? 0;
+    $("#kpiFlag").textContent = counters.flagged ?? ((stats.flag_for_review || 0) + (stats.flag_for_human_review || 0));
     $("#kpiTokens").textContent = formatNumber(stats.total_api_tokens);
 
     if (stats.total_processing_time > 0 && processed > 0) {
@@ -867,16 +881,21 @@
       </td></tr>`;
       return;
     }
-    body.innerHTML = results.map((r) => `
-      <tr data-decision="${r.decision || ""}" data-search="${(r.filename + ' ' + r.reasoning).toLowerCase()}">
-        <td class="cell-truncate">${escHtml(r.filename)}</td>
+    body.innerHTML = results.map((r) => {
+      const filename = r.display_filename || r.filename || "";
+      const reason = r.reasoning || r.rationale || r.error || "";
+      const searchText = `${filename} ${r.title || ""} ${reason}`.toLowerCase();
+      return `
+      <tr data-decision="${r.decision || ""}" data-search="${escHtml(searchText)}">
+        <td class="cell-truncate">${escHtml(filename)}</td>
         <td>${decisionBadge(r.decision)}</td>
         <td>${escHtml(r.stage || "")}</td>
-        <td class="cell-truncate">${escHtml(r.reasoning)}</td>
+        <td class="cell-truncate">${escHtml(reason)}</td>
         <td style="font-family:var(--font-mono);font-size:0.8rem">${r.processing_time ? r.processing_time.toFixed(1) + "s" : "—"}</td>
         <td style="font-family:var(--font-mono);font-size:0.8rem">${formatNumber(r.api_tokens_used)}</td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
 
     // Row click for detail modal
     body.querySelectorAll("tr").forEach((row, i) => {
@@ -910,7 +929,7 @@
 
     body.innerHTML = results.map((r) => {
       const cells = keys.map((k) => {
-        const val = k === "filename" ? r.filename : (r.fields || {})[k] || "";
+        const val = k === "filename" ? (r.display_filename || r.filename) : (r.fields || {})[k] || "";
         return `<td class="cell-truncate">${escHtml(String(val))}</td>`;
       });
       return `<tr>${cells.join("")}</tr>`;
@@ -948,7 +967,7 @@
     const title = $("#modalTitle");
     const body = $("#modalBody");
 
-    title.textContent = result.filename || "Paper Details";
+    title.textContent = result.display_filename || result.filename || "Paper Details";
     let html = "";
 
     const fields = [
@@ -956,6 +975,8 @@
       ["Stage", result.stage],
       ["Reasoning", result.reasoning],
       ["Notes", result.notes],
+      ["Error", result.error],
+      ["Extraction Status", result.extraction_status],
       ["Processing Time", result.processing_time ? result.processing_time.toFixed(2) + "s" : "—"],
       ["Tokens Used", formatNumber(result.api_tokens_used)],
       ["Text Length", formatNumber(result.text_length)],

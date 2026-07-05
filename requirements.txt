@@ -44,8 +44,8 @@ anthropic>=0.34.0
 # Mistral AI uses the OpenAI-compatible adapter above.
 # No provider-specific SDK required.
 
-# Google Gemini  (gemini-2.0-flash, gemini-1.5-pro, etc.)
-google-generativeai>=0.8.0
+# Google Gemini  (gemini-2.5-flash, gemini-2.0-flash, etc.)
+google-genai>=1.0.0
 
 # ── Testing ──────────────────────────────────────────────────────────────────
 pytest>=8.0.0
