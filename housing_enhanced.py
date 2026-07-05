@@ -24,9 +24,38 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime
 import hashlib
 from llm_interface import LLMManager
-import pickle
 from dataclasses import dataclass, asdict, field
 from enum import Enum
+
+CACHE_SCHEMA_VERSION = "2"
+
+
+def _canonical_json(data: Any) -> str:
+    """Stable JSON representation for reproducible hashes."""
+    return json.dumps(
+        data,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sha256_json(data: Any) -> str:
+    return _sha256_text(_canonical_json(data))
+
+
+def _without_secrets(data: Dict[str, Any]) -> Dict[str, Any]:
+    secret_terms = ("key", "token", "secret", "password", "credential")
+    return {
+        key: value
+        for key, value in data.items()
+        if not any(term in key.lower() for term in secret_terms)
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +190,7 @@ class SystematicReviewAutomation:
         self.max_workers         = max_workers
         self.rate_limit_delay    = rate_limit_delay
         self.llm_provider        = llm_provider
-        self.llm_model           = llm_model or LLMManager.get_default_models().get(llm_provider, "gpt-4o-mini")
+        self.llm_model           = llm_model or LLMManager.get_default_models().get(llm_provider, "gpt-5.5")
         self.llm_kwargs          = llm_kwargs
         self.two_stage_screening = two_stage_screening
         self.stop_event          = stop_event or threading.Event()
@@ -176,6 +205,15 @@ class SystematicReviewAutomation:
             'abstract', 'introduction', 'method', 'result', 'discussion', 'conclusion'
         ])
         self.strip_references           = adv.get('strip_references', True)
+        self._advanced_config_for_cache = {
+            'max_text_chars': self.max_text_chars,
+            'max_retries': self.max_retries,
+            'retry_delay': self.retry_delay_base,
+            'intermediate_save_interval': self.intermediate_save_interval,
+            'enable_smart_truncation': self.enable_smart_truncation,
+            'preserve_sections': self.preserve_sections,
+            'strip_references': self.strip_references,
+        }
 
         # Extraction fields define the CSV/Excel columns for extracted data
         self.extraction_fields = extraction_fields or [
@@ -207,6 +245,7 @@ class SystematicReviewAutomation:
         self.screening_excel  = self.output_folder / f"screening_{ts}.xlsx"
         self.extraction_excel = self.output_folder / f"extraction_{ts}.xlsx"
         self.summary_report   = self.output_folder / f"summary_{ts}.txt"
+        self.audit_ledger     = self.output_folder / f"audit_{ts}.jsonl"
 
         # Results
         self.screening_results:  List[ScreeningResult]  = []
@@ -215,6 +254,7 @@ class SystematicReviewAutomation:
 
         # Thread-safe stats
         self._lock = threading.Lock()
+        self._audit_lock = threading.Lock()
         self.stats = {
             'total_files':         0,
             'processed_files':     0,
@@ -282,30 +322,92 @@ class SystematicReviewAutomation:
 
     # ── Cache helpers ────────────────────────────────────────────────────────
 
+    def _provider_cache_metadata(self) -> Dict[str, Any]:
+        return {
+            'provider': self.llm_provider,
+            'model': self.llm_model,
+            'base_url': _without_secrets(self.llm_kwargs).get('base_url'),
+        }
+
+    def _extraction_prompt_fingerprint_source(self) -> Dict[str, Any]:
+        return {
+            'prompt': self.extraction_prompt,
+            'quote_then_answer': True,
+            'fields': self.extraction_fields,
+        }
+
+    def _cache_key_context(
+        self,
+        *,
+        kind: str,
+        text: str,
+        prompt: Any,
+        stage: str = None,
+    ) -> Dict[str, Any]:
+        context = {
+            'cache_schema_version': CACHE_SCHEMA_VERSION,
+            'kind': kind,
+            'stage': stage,
+            'text_hash': _sha256_text(text),
+            'provider_profile': self._provider_cache_metadata(),
+            'model': self.llm_model,
+            'prompt_hash': _sha256_json(prompt),
+            'extraction_fields_hash': _sha256_json(self.extraction_fields),
+            'advanced_config_hash': _sha256_json(self._advanced_config_for_cache),
+        }
+        context['cache_key'] = _sha256_json(context)
+        return context
+
+    def _write_audit_event(
+        self,
+        *,
+        kind: str,
+        filename: str,
+        cache_context: Dict[str, Any],
+        cache_hit: bool,
+        stage: str = None,
+        tokens: int = 0,
+        decision: str = None,
+        status: str = "ok",
+        error: str = None,
+    ):
+        event = {
+            'timestamp': datetime.now().isoformat(timespec='seconds'),
+            'schema_version': CACHE_SCHEMA_VERSION,
+            'kind': kind,
+            'filename': filename,
+            'stage': stage,
+            'cache_hit': cache_hit,
+            'cache_key': cache_context.get('cache_key'),
+            'text_hash': cache_context.get('text_hash'),
+            'provider_profile': cache_context.get('provider_profile'),
+            'model': cache_context.get('model'),
+            'prompt_hash': cache_context.get('prompt_hash'),
+            'extraction_fields_hash': cache_context.get('extraction_fields_hash'),
+            'advanced_config_hash': cache_context.get('advanced_config_hash'),
+            'api_tokens_used': tokens,
+            'decision': decision,
+            'status': status,
+        }
+        if error:
+            event['error'] = error
+        try:
+            with self._audit_lock:
+                with open(self.audit_ledger, 'a', encoding='utf-8') as f:
+                    f.write(_canonical_json(event) + '\n')
+        except Exception as e:
+            self.logger.warning(f"Audit ledger write: {e}")
+
     def _cache_load(self, key: str, kind: str) -> Optional[Dict]:
         if not self.cache_enabled:
             return None
-        # Prefer JSON cache files; fall back to legacy pickle for compatibility
+        # Runtime cache loading is JSON-only. Legacy pickle caches are unsafe to
+        # load automatically; migrate them manually from a trusted environment.
         jp = self.cache_folder / f"{kind}_{key}.json"
         if jp.exists():
             try:
                 with open(jp, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception:
-                pass
-        pp = self.cache_folder / f"{kind}_{key}.pkl"
-        if pp.exists():
-            try:
-                with open(pp, 'rb') as f:
-                    data = pickle.load(f)  # noqa: S301 — only loads tool-generated caches
-                # Migrate to JSON format
-                try:
-                    with open(jp, 'w', encoding='utf-8') as jf:
-                        json.dump(data, jf)
-                    pp.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                return data
             except Exception:
                 pass
         return None
@@ -477,13 +579,29 @@ class SystematicReviewAutomation:
 
     def screen_article(self, text: str, filename: str, stage: str = "Full-text") -> ScreeningResult:
         start = time.time()
-        cache_key = hashlib.md5(f"{text}{stage}".encode()).hexdigest()
+        cache_context = self._cache_key_context(
+            kind='screening',
+            text=text,
+            prompt={'screening_prompt': self.screening_prompt, 'stage': stage},
+            stage=stage,
+        )
+        cache_key = cache_context['cache_key']
         cached = self._cache_load(cache_key, 'screening')
         if cached:
             cached.update({'filename': filename, 'processing_time': time.time() - start})
             # Only pass fields that exist in the dataclass
             valid = {k: cached[k] for k in ScreeningResult.__dataclass_fields__ if k in cached}
-            return ScreeningResult(**valid)
+            result = ScreeningResult(**valid)
+            self._write_audit_event(
+                kind='screening',
+                filename=filename,
+                stage=stage,
+                cache_context=cache_context,
+                cache_hit=True,
+                tokens=0,
+                decision=result.decision,
+            )
+            return result
 
         try:
             snippet = (
@@ -512,6 +630,7 @@ class SystematicReviewAutomation:
             cache_data = asdict(result)
             cache_data.pop('filename', None)
             cache_data.pop('processing_time', None)
+            cache_data['cache_metadata'] = cache_context
             self._cache_save(cache_key, 'screening', cache_data)
 
             with self._lock:
@@ -520,12 +639,30 @@ class SystematicReviewAutomation:
                 if dk in self.stats:
                     self.stats[dk] += 1
 
+            self._write_audit_event(
+                kind='screening',
+                filename=filename,
+                stage=stage,
+                cache_context=cache_context,
+                cache_hit=False,
+                tokens=tokens,
+                decision=result.decision,
+            )
             return result
 
         except InterruptedError:
             raise
         except Exception as e:
             self.logger.error(f"Screening error {filename}: {e}\n{traceback.format_exc()}")
+            self._write_audit_event(
+                kind='screening',
+                filename=filename,
+                stage=stage,
+                cache_context=cache_context,
+                cache_hit=False,
+                status='error',
+                error=str(e),
+            )
             return ScreeningResult(
                 filename=filename,
                 decision=ScreeningDecision.ERROR.value,
@@ -540,15 +677,28 @@ class SystematicReviewAutomation:
 
     def extract_data(self, text: str, filename: str) -> ExtractionResult:
         start = time.time()
-        cache_key = hashlib.md5(text.encode()).hexdigest()
+        cache_context = self._cache_key_context(
+            kind='extraction',
+            text=text,
+            prompt=self._extraction_prompt_fingerprint_source(),
+        )
+        cache_key = cache_context['cache_key']
         cached = self._cache_load(cache_key, 'extraction')
         if cached:
-            return ExtractionResult(
+            result = ExtractionResult(
                 filename=filename,
                 fields=cached.get('fields', {}),
                 processing_time=time.time() - start,
                 api_tokens_used=cached.get('api_tokens_used', 0),
             )
+            self._write_audit_event(
+                kind='extraction',
+                filename=filename,
+                cache_context=cache_context,
+                cache_hit=True,
+                tokens=0,
+            )
+            return result
 
         try:
             chunk = self._smart_truncate(text, self.max_text_chars)
@@ -609,15 +759,31 @@ class SystematicReviewAutomation:
             self._cache_save(cache_key, 'extraction', {
                 'fields': data,
                 'api_tokens_used': tokens,
+                'cache_metadata': cache_context,
             })
             with self._lock:
                 self.stats['total_api_tokens'] += tokens
+            self._write_audit_event(
+                kind='extraction',
+                filename=filename,
+                cache_context=cache_context,
+                cache_hit=False,
+                tokens=tokens,
+            )
             return result
 
         except InterruptedError:
             raise
         except Exception as e:
             self.logger.error(f"Extraction error {filename}: {e}\n{traceback.format_exc()}")
+            self._write_audit_event(
+                kind='extraction',
+                filename=filename,
+                cache_context=cache_context,
+                cache_hit=False,
+                status='error',
+                error=str(e),
+            )
             return ExtractionResult(
                 filename=filename,
                 fields={f: "Error" for f in self.extraction_fields},
@@ -870,6 +1036,7 @@ class SystematicReviewAutomation:
             "screening_excel":  str(self.screening_excel),
             "extraction_excel": str(self.extraction_excel),
             "summary_report":   str(self.summary_report),
+            "audit_ledger":     str(self.audit_ledger),
             "screened_count":   len(self.screening_results),
             "extracted_count":  len(self.extraction_results),
             "statistics":       s,
@@ -915,6 +1082,7 @@ class SystematicReviewAutomation:
                 if self.extraction_results:
                     f.write(f"  {self.extraction_csv}\n")
                     f.write(f"  {self.extraction_excel}\n")
+                f.write(f"  {self.audit_ledger}\n")
         except Exception as e:
             self.logger.error(f"Summary write: {e}")
 

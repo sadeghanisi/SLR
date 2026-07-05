@@ -10,7 +10,7 @@ IF EXIST "..\\.venv\\Scripts\\activate.bat" (
     call "..\\.venv\\Scripts\\activate.bat"
 ) ELSE (
     echo [WARN] No .venv found — using system Python.
-    echo [WARN] If you get module errors, run:  pip install flask flask-cors
+    echo [WARN] If you get module errors, run:  pip install flask
 )
 
 echo [INFO] Starting SLR Web App at http://127.0.0.1:5000

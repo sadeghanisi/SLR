@@ -17,7 +17,7 @@ from dataclasses import asdict
 from flask import (
     Flask, render_template, request, jsonify, send_file, Response, stream_with_context
 )
-from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 # Parent directory contains the core modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -29,18 +29,29 @@ from ingestion import (
 )
 from housing_enhanced import SystematicReviewAutomation
 
+# Local-only browser UI: this Flask app is intended to run on the researcher's
+# own computer at 127.0.0.1. It is not designed for public hosting or multi-user
+# deployment.
 app = Flask(__name__)
-CORS(app)
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
+REFERENCE_UPLOAD_DIR = UPLOAD_DIR / "references"
+PDF_UPLOAD_ROOT = UPLOAD_DIR / "pdfs"
 OUTPUT_DIR = BASE_DIR / "output"
 SETTINGS_FILE = BASE_DIR / "webapp_settings.json"
 
+ALLOWED_REFERENCE_EXTENSIONS = {".ris", ".bib", ".csv", ".txt"}
+ALLOWED_PDF_EXTENSIONS = {".pdf"}
+MAX_REFERENCE_UPLOAD_SIZE = 25 * 1024 * 1024
+MAX_PDF_UPLOAD_SIZE = 100 * 1024 * 1024
+MAX_PDF_UPLOAD_COUNT = 200
+WEBAPP_DEBUG = os.environ.get("SLR_WEBAPP_DEBUG") == "1"
+
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-(UPLOAD_DIR / "references").mkdir(exist_ok=True)
-(UPLOAD_DIR / "pdfs").mkdir(exist_ok=True)
+REFERENCE_UPLOAD_DIR.mkdir(exist_ok=True)
+PDF_UPLOAD_ROOT.mkdir(exist_ok=True)
 
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
 
@@ -57,6 +68,7 @@ session = {
     "processing_thread": None,
     "progress": [],
     "progress_lock": threading.Lock(),
+    "pdf_display_names": {},
 }
 
 
@@ -67,6 +79,79 @@ def _push(event_type: str, data: dict):
             "data": data,
             "ts": time.time(),
         })
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_existing_inside(path_value: str, root: Path, require_dir: bool = False) -> Path:
+    if not path_value:
+        raise FileNotFoundError("Path not provided")
+    resolved = Path(path_value).resolve()
+    root_resolved = root.resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError("Path is outside the WebApp upload directory") from exc
+    if not resolved.exists():
+        raise FileNotFoundError("Path not found")
+    if require_dir and not resolved.is_dir():
+        raise ValueError("Path is not a folder")
+    return resolved
+
+
+def _validate_upload_filename(filename: str, allowed_exts: set[str]) -> tuple[str, str]:
+    original = (filename or "").strip()
+    if not original:
+        raise ValueError("Empty filename")
+    if "/" in original or "\\" in original or original in {".", ".."}:
+        raise ValueError("Invalid filename")
+
+    safe_name = secure_filename(original)
+    if not safe_name or safe_name in {".", ".."}:
+        raise ValueError("Invalid filename")
+
+    ext = Path(safe_name).suffix.lower()
+    if ext not in allowed_exts:
+        raise ValueError(f"Unsupported format: {ext}")
+    return original, ext
+
+
+def _save_uploaded_file(file_storage, folder: Path, allowed_exts: set[str], max_size: int) -> dict:
+    original, ext = _validate_upload_filename(file_storage.filename, allowed_exts)
+    folder.mkdir(parents=True, exist_ok=True)
+    server_filename = f"{uuid.uuid4().hex}{ext}"
+    dest = (folder / server_filename).resolve()
+    if not _is_relative_to(dest, folder):
+        raise ValueError("Invalid upload destination")
+
+    file_storage.save(str(dest))
+    size = dest.stat().st_size
+    if size > max_size:
+        dest.unlink(missing_ok=True)
+        raise ValueError(f"File is too large; limit is {max_size // (1024 * 1024)} MB")
+
+    return {
+        "path": str(dest),
+        "filename": server_filename,
+        "original_filename": original,
+        "size": size,
+    }
+
+
+def _load_webapp_settings() -> dict:
+    if not SETTINGS_FILE.exists():
+        return {}
+    data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    if "api_key" in data:
+        data.pop("api_key", None)
+        SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return data
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -235,26 +320,32 @@ def upload_references():
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
     f = request.files["file"]
-    if not f.filename:
-        return jsonify({"error": "Empty filename"}), 400
-
-    ext = Path(f.filename).suffix.lower()
-    if ext not in (".ris", ".bib", ".csv", ".txt"):
-        return jsonify({"error": f"Unsupported format: {ext}"}), 400
-
-    dest = UPLOAD_DIR / "references" / f.filename
-    f.save(str(dest))
-    return jsonify({"path": str(dest), "filename": f.filename, "size": dest.stat().st_size})
+    try:
+        saved = _save_uploaded_file(
+            f,
+            REFERENCE_UPLOAD_DIR,
+            ALLOWED_REFERENCE_EXTENSIONS,
+            MAX_REFERENCE_UPLOAD_SIZE,
+        )
+        return jsonify(saved)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/api/references/parse", methods=["POST"])
 def api_parse_references():
     d = request.json or {}
     path = d.get("path", "")
-    if not path or not Path(path).exists():
-        return jsonify({"error": "File not found"}), 404
     try:
-        records = parse_references(path)
+        ref_path = _resolve_existing_inside(path, REFERENCE_UPLOAD_DIR)
+    except FileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if ref_path.suffix.lower() not in ALLOWED_REFERENCE_EXTENSIONS:
+        return jsonify({"error": "Unsupported reference file format"}), 400
+    try:
+        records = parse_references(str(ref_path))
         session["references"] = records
         return jsonify({
             "count": len(records),
@@ -395,21 +486,33 @@ def upload_pdfs():
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "No files provided"}), 400
+    if len(files) > MAX_PDF_UPLOAD_COUNT:
+        return jsonify({"error": f"Too many files; limit is {MAX_PDF_UPLOAD_COUNT} PDFs"}), 400
+    try:
+        for f in files:
+            _validate_upload_filename(f.filename, ALLOWED_PDF_EXTENSIONS)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     # Reuse the existing session folder so users can add files incrementally
     existing = session.get("pdf_folder", "")
-    if existing and Path(existing).exists():
-        pdf_dir = Path(existing)
-    else:
-        pdf_dir = UPLOAD_DIR / "pdfs" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    try:
+        pdf_dir = _resolve_existing_inside(existing, PDF_UPLOAD_ROOT, require_dir=True) if existing else None
+    except (FileNotFoundError, ValueError):
+        pdf_dir = None
+    if pdf_dir is None:
+        pdf_dir = PDF_UPLOAD_ROOT / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         pdf_dir.mkdir(parents=True, exist_ok=True)
 
     saved = []
+    display_names = session.setdefault("pdf_display_names", {})
     for f in files:
-        if f.filename and f.filename.lower().endswith(".pdf"):
-            dest = pdf_dir / f.filename
-            f.save(str(dest))
-            saved.append(f.filename)
+        try:
+            item = _save_uploaded_file(f, pdf_dir, ALLOWED_PDF_EXTENSIONS, MAX_PDF_UPLOAD_SIZE)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        saved.append(item)
+        display_names[item["filename"]] = item["original_filename"]
 
     session["pdf_folder"] = str(pdf_dir)
     return jsonify({"count": len(saved), "files": saved, "folder": str(pdf_dir)})
@@ -418,12 +521,20 @@ def upload_pdfs():
 @app.route("/api/pdfs/list", methods=["GET"])
 def list_pdfs():
     pdf_folder = session.get("pdf_folder", "")
-    if not pdf_folder or not Path(pdf_folder).exists():
+    try:
+        folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
+    except (FileNotFoundError, ValueError):
         return jsonify({"files": []})
     files = []
-    for p in sorted(Path(pdf_folder).glob("*.pdf")):
-        files.append({"name": p.name, "size": p.stat().st_size, "path": str(p)})
-    return jsonify({"files": files, "folder": pdf_folder})
+    display_names = session.get("pdf_display_names", {})
+    for p in sorted(folder.glob("*.pdf")):
+        files.append({
+            "name": p.name,
+            "display_name": display_names.get(p.name, p.name),
+            "size": p.stat().st_size,
+            "path": str(p),
+        })
+    return jsonify({"files": files, "folder": str(folder)})
 
 
 @app.route("/api/pdfs/delete", methods=["POST"])
@@ -433,14 +544,19 @@ def delete_pdf():
     pdf_folder = session.get("pdf_folder", "")
     if not pdf_folder or not filename:
         return jsonify({"error": "Missing folder or filename"}), 400
-    target = Path(pdf_folder) / filename
-    # Guard against path traversal
-    if not target.resolve().parent == Path(pdf_folder).resolve():
+    if "/" in filename or "\\" in filename:
+        return jsonify({"error": "Invalid filename"}), 400
+    try:
+        folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
+        target = (folder / secure_filename(filename)).resolve()
+        target.relative_to(folder.resolve())
+    except (FileNotFoundError, ValueError):
         return jsonify({"error": "Invalid filename"}), 400
     if not target.exists():
         return jsonify({"error": "File not found"}), 404
     target.unlink()
-    remaining = len(list(Path(pdf_folder).glob("*.pdf")))
+    session.setdefault("pdf_display_names", {}).pop(target.name, None)
+    remaining = len(list(folder.glob("*.pdf")))
     session["pdf_count"] = remaining
     if remaining == 0:
         session["pdf_folder"] = ""
@@ -450,9 +566,14 @@ def delete_pdf():
 @app.route("/api/pdfs/clear", methods=["POST"])
 def clear_pdfs():
     pdf_folder = session.get("pdf_folder", "")
-    if pdf_folder and Path(pdf_folder).exists():
-        shutil.rmtree(pdf_folder, ignore_errors=True)
+    try:
+        folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
+    except (FileNotFoundError, ValueError):
+        folder = None
+    if folder and folder != PDF_UPLOAD_ROOT.resolve():
+        shutil.rmtree(folder, ignore_errors=True)
     session["pdf_folder"] = ""
+    session["pdf_display_names"] = {}
     return jsonify({"ok": True})
 
 
@@ -461,8 +582,13 @@ def serve_pdf(filename):
     pdf_folder = session.get("pdf_folder", "")
     if not pdf_folder:
         return jsonify({"error": "No PDF folder"}), 404
-    target = (Path(pdf_folder) / filename).resolve()
-    if not str(target).startswith(str(Path(pdf_folder).resolve())):
+    try:
+        folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
+        target = (folder / filename).resolve()
+        target.relative_to(folder.resolve())
+    except (FileNotFoundError, ValueError):
+        return jsonify({"error": "Invalid path"}), 400
+    if target.suffix.lower() != ".pdf":
         return jsonify({"error": "Invalid path"}), 400
     if not target.exists():
         return jsonify({"error": "File not found"}), 404
@@ -473,15 +599,19 @@ def serve_pdf(filename):
 def api_start_processing():
     d = request.json or {}
     pdf_folder = d.get("pdf_folder") or session.get("pdf_folder", "")
-    if not pdf_folder or not Path(pdf_folder).exists():
+    try:
+        pdf_folder_path = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
+    except FileNotFoundError:
         return jsonify({"error": "No PDF folder selected"}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     session["stop_event"].clear()
     session["progress"] = []
 
     config = {
         "api_key": d.get("api_key", ""),
-        "pdf_folder": pdf_folder,
+        "pdf_folder": str(pdf_folder_path),
         "output_folder": str(OUTPUT_DIR),
         "cache_enabled": d.get("cache_enabled", True),
         "parallel_processing": d.get("parallel", True),
@@ -520,7 +650,7 @@ def api_start_processing():
     t.start()
     session["processing_thread"] = t
 
-    pdf_count = len(list(Path(pdf_folder).glob("*.pdf")))
+    pdf_count = len(list(pdf_folder_path.glob("*.pdf")))
     return jsonify({"status": "started", "total": pdf_count})
 
 
@@ -629,9 +759,7 @@ def sse_events():
 
 @app.route("/api/settings", methods=["GET"])
 def api_get_settings():
-    if SETTINGS_FILE.exists():
-        return jsonify(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
-    return jsonify({})
+    return jsonify(_load_webapp_settings())
 
 
 @app.route("/api/settings", methods=["POST"])
@@ -648,4 +776,4 @@ def api_save_settings():
 # ═══════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000, threaded=True)
+    app.run(debug=WEBAPP_DEBUG, host="127.0.0.1", port=5000, threaded=True)
