@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SLR Automation Tool — Systematic Literature Reviews with AI</title>
-  <meta name="description" content="Free, open-source tool that automates systematic literature reviews using AI. Supports 9 providers including free local models. Built by Mo Anisi for students, researchers &amp; professors." />
+  <meta name="description" content="Free, open-source tool that automates systematic literature reviews using AI. Supports native providers, OpenAI-compatible profiles, and free local models. Built by Mo Anisi for students, researchers &amp; professors." />
   <meta name="keywords" content="systematic literature review, SLR, automation, AI, LLM, research tool, open source, PRISMA, Mo Anisi" />
 
   <!-- Open Graph -->
   <meta property="og:title" content="SLR Automation Tool by Mo Anisi" />
-  <meta property="og:description" content="Automate systematic literature reviews with AI — 9 providers, free local models, reference ingestion, screening &amp; extraction. By Mo Anisi." />
+  <meta property="og:description" content="Automate systematic literature reviews with AI — native providers, OpenAI-compatible profiles, free local models, reference ingestion, screening &amp; extraction. By Mo Anisi." />
   <meta property="og:type" content="website" />
   <meta property="og:image" content="https://slr-automation.github.io/og-preview.png" />
 
@@ -67,7 +67,7 @@
       <p class="hero-sub">
         <span class="typed-prefix">&gt;</span> Import references. Deduplicate. Screen abstracts.<br>
         <span class="typed-prefix">&gt;</span> Process PDFs. Extract structured data.<br>
-        <span class="typed-prefix">&gt;</span> 9 AI providers. Free local models included.<br>
+        <span class="typed-prefix">&gt;</span> Native providers + OpenAI-compatible profiles.<br>
         <span class="typed-prefix">&gt;</span> Desktop GUI &amp; browser Web App included.<br>
         <span class="typed-prefix">&gt;</span> One tool. Zero hassle.<span class="cursor">█</span>
       </p>
@@ -87,7 +87,7 @@
         <div class="terminal-body">
           <div class="term-line"><span class="term-prompt">$</span> python slr_gui.py</div>
           <div class="term-line dim">[BOOT] Loading modules...</div>
-          <div class="term-line success">[  OK  ] 9 AI providers available</div>
+          <div class="term-line success">[  OK  ] Provider catalog loaded</div>
           <div class="term-line success">[  OK  ] Reference ingestion ready</div>
           <div class="term-line success">[  OK  ] PDF processing engine loaded</div>
           <div class="term-line"><span class="term-prompt">&gt;</span> Processing 247 PDFs...</div>
@@ -108,8 +108,8 @@
 <section class="stats-bar">
   <div class="container stats-inner">
     <div class="stat">
-      <span class="stat-num neon-cyan">009</span>
-      <span class="stat-label">AI_PROVIDERS</span>
+      <span class="stat-num neon-cyan">013</span>
+      <span class="stat-label">PROFILES</span>
     </div>
     <div class="stat">
       <span class="stat-num neon-pink">005</span>
@@ -262,8 +262,14 @@
           <tr>
             <td><strong>OpenAI</strong></td>
             <td><span class="badge-yellow">[TRIAL]</span></td>
-            <td>gpt-4o-mini</td>
-            <td>Best cost/quality ratio</td>
+            <td>gpt-5.5 / gpt-5.4-mini</td>
+            <td>Quality or balanced cost</td>
+          </tr>
+          <tr>
+            <td><strong>OpenRouter</strong></td>
+            <td><span class="badge-yellow">[ROUTER]</span></td>
+            <td>openai/gpt-5.5</td>
+            <td>Routes through an additional third party</td>
           </tr>
           <tr>
             <td><strong>Anthropic</strong></td>
@@ -290,6 +296,7 @@
     <p class="provider-note">
       &gt; NO API KEY? Start with <strong>Ollama</strong> — 100% free, runs on your machine.
       Get it at <a href="https://ollama.ai" target="_blank" rel="noopener">ollama.ai</a>
+      Router providers such as OpenRouter send text through an additional third party.
     </p>
   </div>
 </section>
@@ -486,7 +493,7 @@ source .venv/bin/activate     <span class="comment"># macOS / Linux</span>
 
 <span class="comment"># Step 2 — Install all dependencies (Flask is included)</span>
 pip install -r requirements.txt
-pip install flask flask-cors
+pip install flask
 
 <span class="comment"># Step 3 — Launch the Web App server</span>
 cd WebApp
@@ -509,7 +516,7 @@ python app.py
         <div>
           <div style="color:#f59e0b;font-weight:bold;margin-bottom:6px;">&gt; REQUIREMENTS</div>
           <div>• Python 3.10+</div>
-          <div>• Flask (pip install flask flask-cors)</div>
+          <div>• Flask (pip install flask)</div>
           <div>• Any modern browser</div>
           <div>• AI provider API key (or Ollama for free local)</div>
           <div>• Keep terminal open while using</div>
@@ -582,7 +589,7 @@ python app.py
 
       <details class="faq-item">
         <summary><span>&gt; Which AI provider should I choose?</span></summary>
-        <p>FREE + PRIVATE → Ollama. FREE CLOUD → DeepSeek / Gemini. BEST QUALITY → GPT-4o-mini or Claude Sonnet.</p>
+        <p>FREE + PRIVATE → Ollama. FREE CLOUD → DeepSeek / Gemini. BEST QUALITY → GPT-5.5 or Claude Sonnet. ROUTER ACCESS → OpenRouter, with an extra third party in the data path.</p>
       </details>
 
       <details class="faq-item">
@@ -602,7 +609,7 @@ python app.py
 
       <details class="faq-item">
         <summary><span>&gt; Does my data leave my computer?</span></summary>
-        <p>Cloud provider → paper text sent to their API. Ollama (local) → everything stays on your machine. We receive ZERO data. Ever.</p>
+        <p>Cloud provider → paper text sent to their API. Router provider → paper text also passes through the router. Ollama (local) → everything stays on your machine. We receive ZERO data. Ever.</p>
       </details>
 
     </div>
@@ -652,8 +659,8 @@ python app.py
       Researchers remain solely responsible for the methodological integrity, transparency, and accuracy of their systematic reviews.</p>
 
       <p><strong style="color:#ff6666;">&gt; Data Privacy:</strong>
-      When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, or others), your paper content is
-      transmitted to third-party servers. The authors of this tool make no representations regarding how those providers
+      When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, OpenRouter, or others), your paper content is
+      transmitted to third-party servers. Router providers such as OpenRouter add another third party. The authors of this tool make no representations regarding how those providers
       store, process, or use your data. Consult each provider&rsquo;s privacy policy before processing sensitive or unpublished
       material. <strong>For confidential data, use the local Ollama option.</strong></p>
 

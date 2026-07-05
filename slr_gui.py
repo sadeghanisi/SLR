@@ -36,6 +36,46 @@ except ImportError as e:
 # ── Auto-save settings path ───────────────────────────────────────────────────
 APP_DIR      = Path(__file__).parent
 SETTINGS_FILE = APP_DIR / "settings.json"
+KEYRING_SERVICE = "SLR Automation Tool"
+
+try:
+    import keyring as _keyring
+except Exception:  # pragma: no cover - optional dependency
+    _keyring = None
+
+
+def _api_key_env_names(provider: str) -> list[str]:
+    safe_provider = re.sub(r"[^A-Z0-9]+", "_", (provider or "").upper()).strip("_")
+    names = []
+    if safe_provider:
+        names.append(f"SLR_{safe_provider}_API_KEY")
+    names.append("SLR_API_KEY")
+    return names
+
+
+def _load_api_key_from_secure_store(provider: str) -> str:
+    if _keyring is not None:
+        try:
+            key = _keyring.get_password(KEYRING_SERVICE, provider or "default")
+            if key:
+                return key
+        except Exception:
+            pass
+    for env_name in _api_key_env_names(provider):
+        key = os.environ.get(env_name)
+        if key:
+            return key
+    return ""
+
+
+def _save_api_key_to_secure_store(provider: str, api_key: str) -> bool:
+    if not api_key or _keyring is None:
+        return False
+    try:
+        _keyring.set_password(KEYRING_SERVICE, provider or "default", api_key)
+        return True
+    except Exception:
+        return False
 
 # ── Tooltip helper ────────────────────────────────────────────────────────────
 
@@ -144,8 +184,9 @@ class SLRAutomationGUI:
         self.cache_enabled   = tk.BooleanVar(value=True)
         self.two_stage       = tk.BooleanVar(value=False)
         self.llm_provider    = tk.StringVar(value="OpenAI")
-        self.llm_model       = tk.StringVar(value="gpt-4o-mini")
+        self.llm_model       = tk.StringVar(value="gpt-5.5")
         self.llm_base_url    = tk.StringVar()
+        self.provider_privacy= tk.StringVar()
         self.show_key        = tk.BooleanVar(value=False)
 
         self.advanced_config = {
@@ -160,6 +201,8 @@ class SLRAutomationGUI:
         self.screening_prompt  = None
         self.extraction_prompt = None
         self.extraction_fields = None   # None → backend uses defaults
+        self._legacy_api_key_ignored = False
+        self._api_key_persisted_securely = False
 
         # ── Ingestion tab state ──────────────────────────────────────────────
         self._ingest_file_path   = tk.StringVar()
@@ -817,9 +860,12 @@ class SLRAutomationGUI:
         self.provider_cb.bind("<<ComboboxSelected>>", self._on_provider_changed)
         Tooltip(self.provider_cb, "Choose your AI provider. Ollama runs locally for free.")
 
-        ttk.Label(pf, text="Model:", style="H.TLabel").grid(row=1, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(pf, textvariable=self.provider_privacy, style="Sub.TLabel",
+                  wraplength=420).grid(row=1, column=1, columnspan=2, sticky=tk.W, pady=(4, 0))
+
+        ttk.Label(pf, text="Model:", style="H.TLabel").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
         model_frame = ttk.Frame(pf)
-        model_frame.grid(row=1, column=1, sticky="ew", pady=(6, 0))
+        model_frame.grid(row=2, column=1, sticky="ew", pady=(6, 0))
         model_frame.columnconfigure(0, weight=1)
         self.model_cb = ttk.Combobox(model_frame, textvariable=self.llm_model, width=22)
         self.model_cb.grid(row=0, column=0, sticky="ew")
@@ -827,9 +873,9 @@ class SLRAutomationGUI:
         ttk.Button(model_frame, text="+", width=3,
                    command=self._manage_custom_models).grid(row=0, column=1, padx=(4, 0))
 
-        ttk.Label(pf, text="API Key:", style="H.TLabel").grid(row=2, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(pf, text="API Key:", style="H.TLabel").grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
         key_frame = ttk.Frame(pf)
-        key_frame.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(6, 0))
+        key_frame.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(6, 0))
         key_frame.columnconfigure(0, weight=1)
         self.key_entry = ttk.Entry(key_frame, textvariable=self.api_key, show="*")
         self.key_entry.grid(row=0, column=0, sticky="ew")
@@ -837,13 +883,13 @@ class SLRAutomationGUI:
                         command=self._toggle_key).grid(row=0, column=1, padx=(4, 0))
         Tooltip(self.key_entry, "Your API key. Not needed for Ollama.")
 
-        ttk.Label(pf, text="Base URL:", style="H.TLabel").grid(row=3, column=0, sticky=tk.W, pady=(6, 0))
+        ttk.Label(pf, text="Base URL:", style="H.TLabel").grid(row=4, column=0, sticky=tk.W, pady=(6, 0))
         self.url_entry = ttk.Entry(pf, textvariable=self.llm_base_url)
-        self.url_entry.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(6, 0))
+        self.url_entry.grid(row=4, column=1, columnspan=2, sticky="ew", pady=(6, 0))
         Tooltip(self.url_entry, "Required for Ollama (http://localhost:11434) and custom endpoints.")
 
         self.test_btn = ttk.Button(pf, text="Test Connection", command=self._test_connection)
-        self.test_btn.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(8, 0))
+        self.test_btn.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(8, 0))
 
         # Paths card
         pth = ttk.LabelFrame(left, text="File Paths", padding=10)
@@ -1155,6 +1201,14 @@ class SLRAutomationGUI:
         self.model_cb['values'] = models
         default = LLMManager.get_default_models().get(p, models[0] if models else "")
         self.llm_model.set(default)
+        privacy = info.get("privacy_label", "")
+        note = info.get("privacy_note", "")
+        if privacy and note:
+            self.provider_privacy.set(f"Privacy: {privacy}. {note}")
+        elif privacy:
+            self.provider_privacy.set(f"Privacy: {privacy}.")
+        else:
+            self.provider_privacy.set("")
 
         # Key/URL field states
         if p == "Ollama (Local)":
@@ -1162,10 +1216,12 @@ class SLRAutomationGUI:
             self.api_key.set("")
             self.url_entry.config(state="normal")
             if not self.llm_base_url.get():
-                self.llm_base_url.set("http://localhost:11434")
+                self.llm_base_url.set(info.get("base_url") or "http://localhost:11434")
         elif LLMManager.needs_base_url(p):
             self.key_entry.config(state="normal")
             self.url_entry.config(state="normal")
+            if not self.llm_base_url.get() and info.get("base_url"):
+                self.llm_base_url.set(info["base_url"])
         else:
             self.key_entry.config(state="normal")
             self.url_entry.config(state="disabled")
@@ -1961,7 +2017,6 @@ class SLRAutomationGUI:
         return {
             'pdf_folder':        self.pdf_folder.get(),
             'output_folder':     self.output_folder.get(),
-            'api_key':           self.api_key.get(),
             'max_workers':       self.max_workers.get(),
             'rate_limit_delay':  self.rate_limit_delay.get(),
             'parallel_proc':     self.parallel_proc.get(),
@@ -1979,6 +2034,12 @@ class SLRAutomationGUI:
     def _save_settings(self, path: str = None):
         try:
             dest = Path(path) if path else SETTINGS_FILE
+            provider = self.llm_provider.get()
+            if provider != "Ollama (Local)":
+                self._api_key_persisted_securely = _save_api_key_to_secure_store(
+                    provider,
+                    self.api_key.get().strip(),
+                )
             with open(dest, 'w', encoding='utf-8') as f:
                 json.dump(self._settings_dict(), f, indent=2)
             if path:
@@ -1988,9 +2049,10 @@ class SLRAutomationGUI:
                 messagebox.showerror("Save Error", str(e))
 
     def _apply_settings(self, s: dict):
+        if 'api_key' in s:
+            self._legacy_api_key_ignored = True
         self.pdf_folder      .set(s.get('pdf_folder', ''))
         self.output_folder   .set(s.get('output_folder', 'output'))
-        self.api_key         .set(s.get('api_key', ''))
         self.max_workers     .set(s.get('max_workers', 3))
         self.rate_limit_delay.set(s.get('rate_limit_delay', 1.0))
         self.parallel_proc   .set(s.get('parallel_proc', True))
@@ -2012,6 +2074,11 @@ class SLRAutomationGUI:
         saved_model = s.get('llm_model', '')
         if saved_model:
             self.llm_model.set(saved_model)
+        provider = self.llm_provider.get()
+        if provider != "Ollama (Local)":
+            self.api_key.set(_load_api_key_from_secure_store(provider))
+        if getattr(self, "_legacy_api_key_ignored", False):
+            self._set_status("Legacy API key in settings.json was ignored; save settings to remove it.")
 
     def _load_settings(self):
         """Auto-load from fixed settings.json on startup."""
@@ -2021,6 +2088,8 @@ class SLRAutomationGUI:
                     self._apply_settings(json.load(f))
             except Exception:
                 pass   # Silently ignore corrupted settings
+        elif self.llm_provider.get() != "Ollama (Local)":
+            self.api_key.set(_load_api_key_from_secure_store(self.llm_provider.get()))
 
     def _load_settings_dialog(self):
         path = filedialog.askopenfilename(
@@ -2128,9 +2197,10 @@ Larger models give better results but cost more and run slower.
 Smaller models are cheaper, faster, and still very accurate for
 standard systematic review screening.
 
-For example, OpenAI's models range from:
-  gpt-4o-mini  — smaller, cheap, still very good  (recommended start)
-  gpt-4o       — most capable, higher cost
+For example, OpenAI's current recommendations include:
+  gpt-5.5       — quality-focused default
+  gpt-5.4-mini  — balanced cost and quality
+  gpt-5.4-nano  — lower-cost option
 
 WHAT IS A TOKEN?
 ──────────────────
@@ -2255,17 +2325,19 @@ KEY CAPABILITIES
   Pydantic schemas, fallback JSON parsing, and human verification UI.
 
   PROVIDER FLEXIBILITY
-  Works with 7 AI providers: OpenAI GPT, Anthropic Claude, DeepSeek,
-  Mistral, Google Gemini, Ollama (fully local / free), and any custom
-  OpenAI-compatible endpoint.
+  Works with native providers plus OpenAI-compatible profiles:
+  OpenAI, Anthropic Claude, Google Gemini, Ollama, OpenRouter,
+  DeepSeek, Mistral, Kimi, Grok, LM Studio, vLLM, LocalAI, and custom
+  OpenAI-compatible endpoints.
 
   PRISMA-COMPLIANT EXPORT
   Export colour-coded Excel workbooks with a PRISMA 2020 flow summary
   sheet tracking all stage counts, from identification to inclusion.
 
   PERSISTENT SETTINGS
-  All settings are auto-saved to settings.json and restored between
-  sessions. Use Ctrl+S to save manually at any time.
+  Non-secret settings are auto-saved to settings.json and restored
+  between sessions. API keys are not written to settings.json.
+  Use Ctrl+S to save manually at any time.
 
 WORKFLOW SUMMARY
 ────────────────
@@ -2659,8 +2731,9 @@ AI PROVIDER CONFIGURATION
   API KEY
   Paste your API key from the provider's developer console.
   Click the "Show" checkbox to reveal / hide the key text.
-  The key is saved to settings.json (encrypted in memory, plain on
-  disk — do not share your settings.json with others).
+  The key is not saved to settings.json. If OS keyring support is
+  available, it is stored in your operating system credential manager;
+  otherwise it remains in memory for this session.
 
   BASE URL
   Required for: Ollama, Custom Endpoint, LM Studio, vLLM.
@@ -2803,9 +2876,9 @@ SAVING AND LOADING SETTINGS
   from a previously saved settings.json. Use this to switch between
   different review projects or share settings with a team member.
 
-  Settings saved include: provider, model, API key, folder paths,
+  Settings saved include: provider, model, folder paths,
   all processing options, criteria text, and extraction fields.
-  Settings NOT saved: current results and processing logs.
+  Settings NOT saved: API keys, current results, and processing logs.
 """),
         "monitor": ("""\
 Monitor Tab  —  Live Processing Dashboard
@@ -2919,7 +2992,8 @@ PERFORMANCE TIPS
   • For 10–50 papers: use 2 workers, 0.5s delay.
   • For 50–200 papers: use 3–5 workers, 1.0s delay. Enable caching.
   • For 200+ papers: enable two-stage screening + caching.
-    Use gpt-4o-mini or claude-haiku for Stage 1 (cheap, fast).
+    Use a balanced/cost model such as gpt-5.4-mini or claude-haiku
+    for Stage 1.
   • If the ETA seems very long: check Max Workers and Rate Delay.
     Also consider whether you need all extraction fields, or whether
     a targeted subset would be faster.
@@ -3082,17 +3156,20 @@ AI Providers  —  Setup and Step-by-Step Registration Guide
 
 OVERVIEW
 ────────
-This tool supports 7 AI providers. You select one in the Setup tab,
-enter your API key, choose a model, and test the connection.
+This tool supports native AI providers plus OpenAI-compatible profiles.
+You select one in the Setup tab, enter your API key when needed,
+choose a model, and test the connection.
 
 Cloud providers require internet. Ollama runs fully locally — free,
 no internet needed after the model download, and nothing leaves your PC.
+Router providers such as OpenRouter send paper text through an
+additional third party before the final model provider.
 
 QUICK CHOICE GUIDE
 ────────────────────
   No budget at all          → Ollama (local, completely free)
   Cheapest cloud option     → DeepSeek or Google Gemini
-  Most trusted / verified   → OpenAI (gpt-4o-mini)
+  Most trusted / verified   → OpenAI (gpt-5.5 or gpt-5.4-mini)
   Best scientific reasoning → Anthropic Claude
   EU data compliance        → Mistral AI
   Already use Google        → Google Gemini
@@ -3136,8 +3213,8 @@ OLLAMA  (LOCAL — COMPLETELY FREE — RECOMMENDED FOR PRIVACY)
 
 OPENAI  (INDUSTRY STANDARD)
 ────────────────────────────
-  Models: gpt-4o-mini (recommended), gpt-4o, gpt-4-turbo,
-          o1-mini, o3-mini, gpt-4.1, gpt-4.1-mini
+  Models: gpt-5.5 (quality), gpt-5.4-mini (balanced),
+          gpt-5.4-nano (low cost), plus manual model IDs.
   Base URL: leave blank
 
   HOW TO GET AN API KEY (step by step)
@@ -3155,9 +3232,9 @@ OPENAI  (INDUSTRY STANDARD)
           $5–10 credit is enough to screen hundreds of papers.
 
   RECOMMENDED MODELS
-  gpt-4o-mini  — fast, very cheap, accurate; best for large corpora.
-  gpt-4o       — most accurate for complex extraction tasks.
-  o3-mini      — reasoning model; best for ambiguous criteria.
+  gpt-5.5       — quality-focused default.
+  gpt-5.4-mini  — balanced cost and quality.
+  gpt-5.4-nano  — lower cost for large corpora.
 
   TIPS
   • Monitor usage at platform.openai.com/usage to track cost.
@@ -3255,22 +3332,22 @@ COST COMPARISON  (approximate, subject to change)
   Ollama         any local model        $0.00  (free)
   Google Gemini  gemini-2.0-flash       $0.000075
   DeepSeek       deepseek-chat          $0.00014
-  OpenAI         gpt-4o-mini            $0.00015
+  OpenAI         gpt-5.4-mini           Check current pricing
   Mistral        mistral-small          $0.0002
   Anthropic      claude-3-5-haiku       $0.00025
   OpenAI         gpt-4o                 $0.0025
   Anthropic      claude-3-5-sonnet      $0.003
 
   TYPICAL COST ESTIMATES
-  1,000 abstracts screened (gpt-4o-mini)   ≈ $0.09  (nine cents)
-  200 full-text PDFs extracted (gpt-4o-mini) ≈ $0.33 (thirty-three cents)
+  1,000 abstracts screened (balanced/cost model)  Check provider pricing
+  200 full-text PDFs extracted (balanced/cost model) Check provider pricing
   Full review: 3,000 abstracts + 150 PDFs   ≈ $0.50–$1.00
   (Varies with paper length, model, field count.)
 
   COST-SAVING TIPS
   1. Always enable caching — avoids re-charging for completed files.
   2. Test with 5–10 papers first to confirm settings are correct.
-  3. Use gpt-4o-mini or claude-haiku for abstract screening.
+  3. Use gpt-5.4-mini, gpt-5.4-nano, or claude-haiku for abstract screening.
   4. Use a stronger model only for final full-text extraction.
   5. Start with a small budget top-up ($5–10) until you know costs.
 """),
@@ -4018,8 +4095,8 @@ Q: Can a team of reviewers use this tool together?
   • Compare results using the exported CSV/Excel files.
   • Use inter-rater reliability metrics (e.g., Cohen's kappa) on a
     sample of records before committing to full AI-assisted screening.
-  Note: share settings.json only with trusted colleagues — it
-  contains your API key.
+  Note: settings.json does not contain API keys, but it can include
+  project paths and criteria that may still be sensitive.
 
 Q: How do I report AI use in my methods section?
 ──────────────────────────────────────────────────
@@ -4049,6 +4126,8 @@ Q: Is my data sent to the AI provider?
 ────────────────────────────────────────
   Yes — for all cloud providers (OpenAI, Anthropic, DeepSeek, etc.),
   your paper text and criteria are sent to that provider's API.
+  Router providers such as OpenRouter add another third party between
+  this tool and the final model provider.
   Each provider has a data retention policy; check their websites:
   - OpenAI: platform.openai.com/privacy
   - Anthropic: anthropic.com/privacy
@@ -4159,8 +4238,8 @@ Q: Can I share settings and criteria with a co-reviewer?
   Send this file to your co-reviewer. They load it via Load Settings.
   Settings includes: criteria text, extraction fields, provider choice,
   folder paths, and all processing options.
-  API keys ARE included in settings.json — share with trusted colleagues
-  only, and never commit settings.json to a public version control repository.
+  API keys are not included in settings.json. They must enter their own
+  key, use their OS keyring, or set an environment variable.
 
 Q: Can I resume a partially completed run?
 ───────────────────────────────────────────
@@ -4252,8 +4331,9 @@ accuracy of their systematic reviews.
 DATA PRIVACY
 ─────────────
 When using cloud-based AI providers (OpenAI, Anthropic, Google,
-DeepSeek, or others), your paper content is transmitted to
-third-party servers. The authors of this tool make no
+DeepSeek, OpenRouter, or others), your paper content is transmitted to
+third-party servers. Router providers such as OpenRouter add another
+third party before the final model provider. The authors of this tool make no
 representations regarding how those providers store, process, or
 use your data. Consult each provider's privacy policy before
 processing sensitive or unpublished material.

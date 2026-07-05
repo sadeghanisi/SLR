@@ -5,6 +5,10 @@
 
 # ── GUI ───────────────────────────────────────────────────────────────────────
 ttkthemes>=3.2.0            # Modern ttk widget themes (optional; falls back to clam)
+keyring>=24.0.0             # Store desktop API keys in the OS credential manager when available
+
+# ── Local Web App ─────────────────────────────────────────────────────────────
+flask>=3.0.0                # Local-only browser UI served from WebApp/app.py
 
 # ── PDF Extraction ────────────────────────────────────────────────────────────
 pymupdf4llm>=0.0.4          # PRIMARY: PDF → Markdown (preserves reading order, tables, multi-column)
@@ -26,7 +30,7 @@ openpyxl>=3.1.0             # Excel (.xlsx) read/write with color coding
 
 # ── LLM Providers (install only what you need) ────────────────────────────────
 
-# OpenAI  (gpt-4o, gpt-4o-mini, gpt-4-turbo, o1, etc.)
+# OpenAI  (gpt-5.5, gpt-5.4-mini, gpt-5.4-nano, legacy GPT-4 models, etc.)
 # Also used by instructor for structured outputs
 openai>=1.40.0
 
@@ -37,11 +41,14 @@ anthropic>=0.34.0
 # Uses the OpenAI-compatible API — covered by openai package above.
 # No extra install required; just set your DeepSeek API key and base URL.
 
-# Mistral AI  (mistral-large, mistral-small, codestral, etc.)
-mistralai>=1.0.0
+# Mistral AI uses the OpenAI-compatible adapter above.
+# No provider-specific SDK required.
 
 # Google Gemini  (gemini-2.0-flash, gemini-1.5-pro, etc.)
 google-generativeai>=0.8.0
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+pytest>=8.0.0
 
 # Ollama  (local: llama3.2, qwen, phi3, mistral, etc.)
 # No pip package required — Ollama runs as a local server.

@@ -5,7 +5,7 @@
 [![Version](https://img.shields.io/badge/version-3.3.0-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-yellow?style=for-the-badge&logo=python)](https://python.org)
-[![Providers](https://img.shields.io/badge/AI%20Providers-9-purple?style=for-the-badge)](#-ai-provider-quick-reference)
+[![Providers](https://img.shields.io/badge/AI%20Providers-13-purple?style=for-the-badge)](#-ai-provider-quick-reference)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)](#-installation)
 [![WebApp](https://img.shields.io/badge/WebApp-v3.3.0-orange?style=for-the-badge)](#-web-application-new-in-v330)
 
@@ -17,7 +17,7 @@
 
 ---
 
-A powerful, open-source tool for automating systematic literature reviews (SLRs) with support for **9 AI providers**, reference ingestion, deduplication, two-stage screening, and structured data extraction. Available as both a **desktop GUI** and a **browser-based Web App**.
+A powerful, open-source tool for automating systematic literature reviews (SLRs) with support for **native AI providers and OpenAI-compatible profiles**, reference ingestion, deduplication, two-stage screening, and structured data extraction. Available as both a **desktop GUI** and a **browser-based Web App**.
 
 > **New to this tool?** Read [COMPLETE_USER_GUIDE.md](COMPLETE_USER_GUIDE.md) for a beginner-friendly walkthrough (assumes no prior AI/LLM knowledge).
 
@@ -32,16 +32,17 @@ A powerful, open-source tool for automating systematic literature reviews (SLRs)
 
 ## ✨ Features
 
-### 🤖 Multi-LLM Support (9 Providers)
-- **OpenAI** — GPT-4o, GPT-4.1, o3, o4-mini, o1, and more
+### 🤖 Multi-LLM Support
+- **OpenAI** — GPT-5.5, GPT-5.4 Mini/Nano, GPT-4o, and manually entered model IDs
 - **Anthropic Claude** — Claude Sonnet 4, Opus 4, Claude 3.7/3.5
 - **Google Gemini** — Gemini 2.5 Pro/Flash, 2.0, 1.5
+- **OpenRouter** — OpenAI-compatible router profile; sends text through an additional third party
 - **DeepSeek** — deepseek-chat, deepseek-reasoner, deepseek-coder
 - **Mistral** — Large, Medium, Small, Codestral, Pixtral, Ministral
 - **Kimi (Moonshot AI)** — moonshot-v1-auto, 8k/32k/128k, kimi-latest
 - **Grok (xAI)** — Grok 3, Grok 3 Mini, Grok 2
 - **Ollama** — Any local model, completely free, no API key
-- **Custom** — Any OpenAI-compatible API (LM Studio, vLLM, LocalAI, etc.)
+- **Local/custom OpenAI-compatible profiles** — LM Studio, vLLM, LocalAI, and custom endpoints
 - **User-defined models** — Type any model ID directly, including newly released models not yet in the built-in list
 
 ### 📥 Reference Ingestion & Deduplication
@@ -67,7 +68,7 @@ A powerful, open-source tool for automating systematic literature reviews (SLRs)
 
 ## 🌐 Web Application (New in v3.3.0)
 
-A complete browser-based interface for the SLR tool, located in the `WebApp/` directory. No desktop installation required for end users — just a running Python server.
+A complete browser-based interface for the SLR tool, located in the `WebApp/` directory. It is a **local-only UI** for a researcher running the tool on their own computer at `127.0.0.1`; it is not intended for public deployment, shared servers, or multi-user hosting.
 
 ### Features unique to the Web App
 | Feature | Description |
@@ -75,11 +76,11 @@ A complete browser-based interface for the SLR tool, located in the `WebApp/` di
 | **4-stage pipeline UI** | Configure → Ingest → Process → Results — mirrors the PRISMA workflow |
 | **AI Enhance buttons** | One-click AI improvement for screening criteria, screening prompts, and extraction fields using your configured API key |
 | **PDF file manager** | Upload PDFs, view the list, open in browser, delete individually or clear all |
-| **Custom model input** | Override the model dropdown with any model ID (e.g. `gpt-4.5`, `claude-opus-4`, `llama3.3:70b`) |
+| **Custom model input** | Override the model dropdown with any model ID (e.g. `gpt-5.5`, `gpt-5.4-mini`, `llama3.3:70b`) |
 | **Real-time monitor** | Live progress, KPI counts, processing log streamed to the browser |
 | **Help & Guide drawer** | 9-topic in-app guide covering Quick Start, all stages, providers, cost guide, FAQ, and a detailed disclaimer |
 | **Interactive disclaimer** | Pre-publication checklist with interactive checkboxes |
-| **Auto-save settings** | Provider, API key, model, and criteria persist between sessions |
+| **Auto-save settings** | Provider, model, Base URL, and criteria persist between sessions; API keys are not saved by the Web App |
 | **PRISMA summary** | Identified → Screened → Included/Excluded counts displayed on the Results page |
 
 ### Launch the Web App
@@ -100,11 +101,11 @@ cd WebApp
 python app.py
 ```
 
-Then open **http://127.0.0.1:5000** in your browser.
+Then open **http://127.0.0.1:5000** in your browser. Keep it bound to localhost; do not expose this Flask app to a public network.
 
 ### Web App dependencies
 ```bash
-pip install flask flask-cors
+pip install flask
 # All other dependencies are shared with the main project (requirements.txt)
 ```
 
@@ -167,15 +168,18 @@ python app.py
 
 | Provider | Free Tier? | Recommended Model | Sign-up |
 |---|---|---|---|
-| OpenAI | Trial credit | gpt-4o-mini | [platform.openai.com](https://platform.openai.com) |
+| OpenAI | Trial credit | gpt-5.5 / gpt-5.4-mini | [platform.openai.com](https://platform.openai.com) |
 | Anthropic | — | claude-sonnet-4-20250514 | [console.anthropic.com](https://console.anthropic.com) |
 | Google Gemini | ✅ Yes | gemini-2.5-flash | [aistudio.google.com](https://aistudio.google.com) |
+| OpenRouter | Varies | openai/gpt-5.5 | [openrouter.ai](https://openrouter.ai) |
 | DeepSeek | ✅ Generous | deepseek-chat | [platform.deepseek.com](https://platform.deepseek.com) |
 | Mistral | ✅ Free tier | mistral-large-latest | [console.mistral.ai](https://console.mistral.ai) |
 | Kimi (Moonshot) | ✅ Free tier | moonshot-v1-auto | [platform.moonshot.cn](https://platform.moonshot.cn) |
 | Grok (xAI) | — | grok-3-mini-fast | [console.x.ai](https://console.x.ai) |
 | Ollama | ✅ Fully free | llama3 / mistral | [ollama.ai](https://ollama.ai) |
-| Custom | Varies | — | — |
+| LM Studio / vLLM / LocalAI / Custom | Varies | Manual model ID | Local or custom endpoint |
+
+> Router profiles such as OpenRouter send paper text through an additional third party before it reaches the selected model provider. Use Ollama/local models when maximum privacy is required.
 
 
 **Cost estimates:**
@@ -183,8 +187,8 @@ python app.py
 |---|---|---|
 | Ollama (local) | $0 | Large projects, privacy-sensitive data |
 | DeepSeek / Gemini | Free tier | Budget-friendly cloud option |
-| GPT-4o-mini | ~$0.05–0.20 / 1,000 papers | Good balance of cost & quality |
-| GPT-4o / Claude Sonnet 4 | ~$0.50–5.00 / 1,000 papers | Highest quality |
+| GPT-5.4-mini / small cloud models | Varies by provider | Good balance of cost & quality |
+| GPT-5.5 / Claude Sonnet 4 | Varies by provider | Highest quality |
 
 > **Tip:** Always test with 5–10 PDFs before processing your full corpus.
 
@@ -196,7 +200,7 @@ python app.py
 SLR/
 ├── slr_gui.py                # Desktop GUI (Tkinter, 5 tabs)
 ├── housing_enhanced.py       # Core automation engine
-├── llm_interface.py          # Universal LLM provider interface (9 providers)
+├── llm_interface.py          # LLM provider catalog, native adapters, and OpenAI-compatible profiles
 ├── ingestion.py              # Reference import, dedup & abstract screening
 ├── prompt_editor.py          # Screening/extraction criteria editor (GUI)
 ├── advanced_config.py        # Advanced settings dialog (GUI)
@@ -213,7 +217,7 @@ SLR/
 └── WebApp/                   # Browser-based Web Application (v3.3.0)
     ├── app.py                # Flask backend (19+ API routes)
     ├── run.bat               # Windows one-click launcher
-    ├── requirements.txt      # Web app dependencies (Flask, flask-cors)
+    ├── requirements.txt      # Web app dependencies (Flask)
     ├── templates/
     │   └── index.html        # Single-page application
     ├── static/
@@ -232,7 +236,7 @@ SLR/
 | "Rate limit exceeded" | Increase rate-limit delay; reduce Max Workers |
 | Ollama connection failed | Run `ollama serve`, verify `http://localhost:11434`, check `ollama list` |
 | Missing module error | Run `pip install -r requirements.txt` inside your venv |
-| Web App: "No module named flask" | Run `pip install flask flask-cors` in your venv, or use `run.bat` |
+| Web App: "No module named flask" | Run `pip install flask` in your venv, or use `run.bat` |
 | Provider list not loading (Web App) | Hard-refresh browser (`Ctrl+Shift+R`); check the server terminal for errors |
 
 ---
@@ -241,7 +245,7 @@ SLR/
 
 Pull requests are welcome! Key extension points:
 
-- **New LLM provider** → [`llm_interface.py`](llm_interface.py) — subclass `LLMProvider`
+- **New LLM provider** → [`llm_interface.py`](llm_interface.py) — add an OpenAI-compatible profile unless the API shape requires a native adapter
 - **Domain template** → [`prompt_editor.py`](prompt_editor.py) — add to `TemplateSelector`
 - **GUI enhancement** → [`slr_gui.py`](slr_gui.py)
 - **Web App** → [`WebApp/app.py`](WebApp/app.py) and [`WebApp/static/`](WebApp/static/)
@@ -262,7 +266,7 @@ Please open an [issue](https://github.com/sadeghanisi/SLR/issues) before major c
 1. Read the [Complete User Guide](COMPLETE_USER_GUIDE.md)
 2. Check the in-app **Help** panel (Web App) or **Help** tab (GUI)
 3. Review logs in the output folder
-4. Run the test suite: `python test_tool.py`
+4. Run the test suite: `python -m pytest`
 5. Open an [issue on GitHub](https://github.com/sadeghanisi/SLR/issues)
 
 ---
@@ -277,7 +281,11 @@ Please open an [issue](https://github.com/sadeghanisi/SLR/issues) before major c
 
 **No Academic Guarantee.** Use of this tool does not ensure compliance with PRISMA, CONSORT, or any other reporting standard. Researchers remain solely responsible for the methodological integrity, transparency, and accuracy of their systematic reviews.
 
-**Data Privacy.** When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, or others), your paper content is transmitted to third-party servers. The authors of this tool make no representations regarding how those providers store, process, or use your data. Consult each provider's privacy policy before processing sensitive or unpublished material. **For confidential data, use the local Ollama option.**
+**Local-First Scope.** The desktop GUI and Web App are designed for individual researchers running the tool locally on their own computers. The Web App is not a production multi-user service and should not be hosted publicly without a separate security review and substantial redesign.
+
+**Data Privacy.** When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, OpenRouter, or others), your paper content is transmitted to third-party servers. Router providers such as OpenRouter add another third party between this tool and the final model provider. The authors of this tool make no representations regarding how those providers store, process, or use your data. Consult each provider's privacy policy before processing sensitive or unpublished material. **For confidential data, use the local Ollama option.**
+
+**API Keys.** The Web App does not save API keys to `webapp_settings.json`. The desktop GUI no longer writes API keys to `settings.json`; when the optional OS keyring backend is available it stores keys in the operating system credential manager, otherwise keys remain in memory for the current session or can be supplied through environment variables such as `SLR_API_KEY`.
 
 **Cost and Billing.** API usage fees are charged directly by third-party AI providers. The authors of this tool have no visibility into, or responsibility for, charges incurred through your API account. Monitor your usage and set billing limits with your provider before running large processing jobs.
 

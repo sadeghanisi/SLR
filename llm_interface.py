@@ -1,34 +1,335 @@
 """
-LLM Interface — Universal AI Provider Support
-Supports OpenAI, Anthropic Claude, DeepSeek, Mistral, Google Gemini,
-Kimi (Moonshot), Grok (xAI), Ollama (local), and any OpenAI-compatible endpoint.
+LLM Interface - provider catalog plus a small set of adapters.
 
-All providers implement chat_completion_with_tokens() which returns
-(response_text: str, tokens_used: int) so cost tracking works everywhere.
+The app keeps a chat-style abstraction for local-first SLR workflows. Native
+providers are used only when the API shape is genuinely different. Hosted and
+local OpenAI-compatible services are represented as catalog profiles.
 """
 
-__version__ = "3.3.0"
+__version__ = "3.4.0"
 
+import copy
 import json
-import time
-import requests
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List, Tuple
 import logging
+from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────────────────────
+
+# ---------------------------------------------------------------------------
+# Provider catalog
+# ---------------------------------------------------------------------------
+
+PRIVACY_LEVELS = {
+    "local_only": "Local only",
+    "direct_cloud": "Direct cloud provider",
+    "router_third_party": "Router / third party",
+    "custom_endpoint": "Custom endpoint",
+}
+
+FREE_TIER_BY_PROVIDER = {
+    "OpenAI": False,
+    "Anthropic (Claude)": False,
+    "Google Gemini": True,
+    "OpenRouter": "Varies",
+    "DeepSeek": True,
+    "Mistral": True,
+    "Kimi (Moonshot)": True,
+    "Grok (xAI)": False,
+    "Ollama (Local)": True,
+    "LM Studio": True,
+    "vLLM": "Varies",
+    "LocalAI": "Varies",
+    "Custom OpenAI-Compatible": "Varies",
+}
+
+
+PROVIDER_CATALOG: Dict[str, Dict[str, Any]] = {
+    "OpenAI": {
+        "id": "openai",
+        "display_name": "OpenAI",
+        "adapter": "native_openai",
+        "base_url": None,
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://platform.openai.com",
+        "default_model": "gpt-5.5",
+        "recommended_models": [
+            {"id": "gpt-5.5", "tier": "quality", "stability": "stable"},
+            {"id": "gpt-5.4-mini", "tier": "balanced", "stability": "stable"},
+            {"id": "gpt-5.4-nano", "tier": "low_cost", "stability": "stable"},
+            {"id": "gpt-4o", "tier": "legacy_quality", "stability": "stable"},
+            {"id": "gpt-4o-mini", "tier": "legacy_balanced", "stability": "stable"},
+        ],
+    },
+    "Anthropic (Claude)": {
+        "id": "anthropic",
+        "display_name": "Anthropic Claude",
+        "adapter": "native_anthropic",
+        "base_url": None,
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://console.anthropic.com",
+        "default_model": "claude-sonnet-4-20250514",
+        "recommended_models": [
+            {"id": "claude-sonnet-4-20250514", "tier": "balanced", "stability": "stable"},
+            {"id": "claude-opus-4-20250514", "tier": "quality", "stability": "stable"},
+            {"id": "claude-3-7-sonnet-20250219", "tier": "legacy_quality", "stability": "stable"},
+            {"id": "claude-3-5-haiku-20241022", "tier": "low_cost", "stability": "stable"},
+        ],
+        "model_discovery": {
+            "type": "anthropic_models",
+            "endpoint": "https://api.anthropic.com/v1/models",
+        },
+    },
+    "Google Gemini": {
+        "id": "google_gemini",
+        "display_name": "Google Gemini",
+        "adapter": "native_gemini",
+        "base_url": None,
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://aistudio.google.com",
+        "default_model": "gemini-2.5-flash",
+        "recommended_models": [
+            {"id": "gemini-2.5-flash", "tier": "balanced", "stability": "stable"},
+            {"id": "gemini-2.5-pro", "tier": "quality", "stability": "stable"},
+            {"id": "gemini-2.0-flash", "tier": "fast", "stability": "stable"},
+            {"id": "gemini-2.0-flash-lite", "tier": "low_cost", "stability": "stable"},
+        ],
+        "model_id_guidance": {
+            "latest_alias_warning": "Latest aliases are convenient but reduce reproducibility.",
+            "stability_detection": ["stable", "preview", "latest", "experimental"],
+        },
+        "model_discovery": {
+            "type": "gemini_models",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+        },
+    },
+    "OpenRouter": {
+        "id": "openrouter",
+        "display_name": "OpenRouter",
+        "adapter": "openai_compatible",
+        "base_url": "https://openrouter.ai/api/v1",
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "router_third_party",
+        "website": "https://openrouter.ai",
+        "default_model": "openai/gpt-5.5",
+        "recommended_models": [
+            {"id": "openai/gpt-5.5", "tier": "quality", "stability": "stable"},
+            {"id": "openai/gpt-5.4-mini", "tier": "balanced", "stability": "stable"},
+            {"id": "anthropic/claude-sonnet-4", "tier": "alternate_quality", "stability": "latest"},
+        ],
+        "model_discovery": {"type": "openrouter_models", "endpoint": "/models"},
+        "privacy_note": "Paper text is sent through OpenRouter before reaching the selected model provider.",
+    },
+    "DeepSeek": {
+        "id": "deepseek",
+        "display_name": "DeepSeek",
+        "adapter": "openai_compatible",
+        "base_url": "https://api.deepseek.com/v1",
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://platform.deepseek.com",
+        "default_model": "deepseek-chat",
+        "recommended_models": [
+            {"id": "deepseek-chat", "tier": "balanced", "stability": "stable"},
+            {"id": "deepseek-reasoner", "tier": "reasoning", "stability": "stable"},
+            {"id": "deepseek-coder", "tier": "code", "stability": "stable"},
+        ],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "Mistral": {
+        "id": "mistral",
+        "display_name": "Mistral",
+        "adapter": "openai_compatible",
+        "base_url": "https://api.mistral.ai/v1",
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://console.mistral.ai",
+        "default_model": "mistral-large-latest",
+        "recommended_models": [
+            {"id": "mistral-large-latest", "tier": "quality", "stability": "latest"},
+            {"id": "mistral-small-latest", "tier": "balanced", "stability": "latest"},
+            {"id": "open-mistral-nemo", "tier": "open", "stability": "stable"},
+            {"id": "codestral-latest", "tier": "code", "stability": "latest"},
+        ],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "Kimi (Moonshot)": {
+        "id": "kimi_moonshot",
+        "display_name": "Kimi / Moonshot",
+        "adapter": "openai_compatible",
+        "base_url": "https://api.moonshot.cn/v1",
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://platform.moonshot.cn",
+        "default_model": "moonshot-v1-auto",
+        "recommended_models": [
+            {"id": "moonshot-v1-auto", "tier": "balanced", "stability": "latest"},
+            {"id": "moonshot-v1-8k", "tier": "small_context", "stability": "stable"},
+            {"id": "moonshot-v1-32k", "tier": "medium_context", "stability": "stable"},
+            {"id": "moonshot-v1-128k", "tier": "large_context", "stability": "stable"},
+            {"id": "kimi-latest", "tier": "latest", "stability": "latest"},
+        ],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "Grok (xAI)": {
+        "id": "xai_grok",
+        "display_name": "Grok (xAI)",
+        "adapter": "openai_compatible",
+        "base_url": "https://api.x.ai/v1",
+        "show_base_url": False,
+        "requires_api_key": True,
+        "privacy_level": "direct_cloud",
+        "website": "https://console.x.ai",
+        "default_model": "grok-3-mini-fast",
+        "recommended_models": [
+            {"id": "grok-3", "tier": "quality", "stability": "stable"},
+            {"id": "grok-3-fast", "tier": "quality_fast", "stability": "stable"},
+            {"id": "grok-3-mini", "tier": "balanced", "stability": "stable"},
+            {"id": "grok-3-mini-fast", "tier": "fast", "stability": "stable"},
+        ],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "Ollama (Local)": {
+        "id": "ollama",
+        "display_name": "Ollama / Local",
+        "adapter": "native_ollama",
+        "base_url": "http://localhost:11434",
+        "show_base_url": True,
+        "requires_api_key": False,
+        "privacy_level": "local_only",
+        "website": "https://ollama.com",
+        "default_model": "llama3.2",
+        "recommended_models": [
+            {"id": "llama3.2", "tier": "balanced", "stability": "local"},
+            {"id": "llama3.1", "tier": "legacy_balanced", "stability": "local"},
+            {"id": "mistral", "tier": "small", "stability": "local"},
+            {"id": "gemma2", "tier": "small", "stability": "local"},
+            {"id": "qwen2", "tier": "small", "stability": "local"},
+        ],
+        "model_discovery": {"type": "ollama_tags", "endpoint": "/api/tags"},
+    },
+    "LM Studio": {
+        "id": "lm_studio",
+        "display_name": "LM Studio",
+        "adapter": "openai_compatible",
+        "base_url": "http://localhost:1234/v1",
+        "show_base_url": True,
+        "requires_api_key": "Varies",
+        "privacy_level": "local_only",
+        "website": "https://lmstudio.ai",
+        "default_model": "local-model",
+        "recommended_models": [{"id": "local-model", "tier": "custom", "stability": "local"}],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "vLLM": {
+        "id": "vllm",
+        "display_name": "vLLM",
+        "adapter": "openai_compatible",
+        "base_url": "http://localhost:8000/v1",
+        "show_base_url": True,
+        "requires_api_key": "Varies",
+        "privacy_level": "custom_endpoint",
+        "website": "https://docs.vllm.ai",
+        "default_model": "local-model",
+        "recommended_models": [{"id": "local-model", "tier": "custom", "stability": "custom"}],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "LocalAI": {
+        "id": "localai",
+        "display_name": "LocalAI",
+        "adapter": "openai_compatible",
+        "base_url": "http://localhost:8080/v1",
+        "show_base_url": True,
+        "requires_api_key": "Varies",
+        "privacy_level": "custom_endpoint",
+        "website": "https://localai.io",
+        "default_model": "local-model",
+        "recommended_models": [{"id": "local-model", "tier": "custom", "stability": "custom"}],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+    "Custom OpenAI-Compatible": {
+        "id": "custom_openai_compatible",
+        "display_name": "Custom OpenAI-Compatible",
+        "adapter": "openai_compatible",
+        "base_url": None,
+        "show_base_url": True,
+        "requires_api_key": "Varies",
+        "privacy_level": "custom_endpoint",
+        "website": "Custom",
+        "default_model": "gpt-5.5",
+        "recommended_models": [
+            {"id": "gpt-5.5", "tier": "quality", "stability": "custom"},
+            {"id": "local-model", "tier": "local", "stability": "custom"},
+        ],
+        "model_discovery": {"type": "openai_compatible_models", "endpoint": "/models"},
+    },
+}
+
+
+def _copy_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    return copy.deepcopy(profile)
+
+
+def _model_ids(recommended_models: List[Any]) -> List[str]:
+    ids: List[str] = []
+    for item in recommended_models:
+        model_id = item.get("id") if isinstance(item, dict) else item
+        if model_id and model_id not in ids:
+            ids.append(str(model_id))
+    return ids
+
+
+def _join_url(base_url: str, endpoint: str) -> str:
+    if endpoint.startswith("http://") or endpoint.startswith("https://"):
+        return endpoint
+    return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def classify_model_stability(model_id: str) -> str:
+    """Classify model IDs for reproducibility warnings, especially Gemini."""
+    value = (model_id or "").lower()
+    if "experimental" in value or "-exp" in value or value.startswith("exp-"):
+        return "experimental"
+    if "preview" in value:
+        return "preview"
+    if "latest" in value:
+        return "latest"
+    return "stable"
+
+
+def model_reproducibility_warning(model_id: str) -> str:
+    stability = classify_model_stability(model_id)
+    if stability in {"preview", "latest", "experimental"}:
+        return (
+            f"{model_id} is a {stability} model or alias; use a stable, dated "
+            "model ID for reproducible research when available."
+        )
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # User-defined custom models persistence
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 _CUSTOM_MODELS_FILE = Path(__file__).parent / "custom_models.json"
 
+
 def load_custom_models() -> Dict[str, List[str]]:
-    """Load user-added models per provider from disk.
-    Returns dict like {"OpenAI": ["my-fine-tune"], "Kimi (Moonshot)": ["moonshot-v1-128k"]}.
-    """
+    """Load user-added models per provider from disk."""
     if _CUSTOM_MODELS_FILE.exists():
         try:
             with open(_CUSTOM_MODELS_FILE, encoding="utf-8") as f:
@@ -40,7 +341,7 @@ def load_custom_models() -> Dict[str, List[str]]:
 
 
 def save_custom_models(custom: Dict[str, List[str]]) -> None:
-    """Persist user-added models to disk."""
+    """Persist user-added model IDs. This file does not contain API keys."""
     with open(_CUSTOM_MODELS_FILE, "w", encoding="utf-8") as f:
         json.dump(custom, f, indent=2)
 
@@ -65,30 +366,29 @@ def remove_custom_model(provider: str, model_name: str) -> None:
         save_custom_models(custom)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Abstract base
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 class LLMProvider(ABC):
-
     def __init__(self, api_key: str, model: str, **kwargs):
         self.api_key = api_key
-        self.model   = model
-        self.config  = kwargs
+        self.model = model
+        self.config = kwargs
 
     @abstractmethod
     def chat_completion_with_tokens(
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.05,
-        max_tokens:  int   = 4000,
+        max_tokens: int = 4000,
         **kwargs,
     ) -> Tuple[str, int]:
         """Return (response_text, total_tokens_used)."""
         pass
 
-    # Legacy shim — kept so any existing code calling chat_completion() still works
     def chat_completion(self, messages, temperature=0.05, max_tokens=4000, **kwargs) -> str:
+        """Legacy shim kept for existing code."""
         text, _ = self.chat_completion_with_tokens(messages, temperature, max_tokens, **kwargs)
         return text
 
@@ -97,13 +397,12 @@ class LLMProvider(ABC):
         pass
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# OpenAI
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Native providers
+# ---------------------------------------------------------------------------
 
 class OpenAIProvider(LLMProvider):
-
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", **kwargs):
+    def __init__(self, api_key: str, model: str = "gpt-5.5", **kwargs):
         super().__init__(api_key, model, **kwargs)
         try:
             import openai
@@ -127,38 +426,10 @@ class OpenAIProvider(LLMProvider):
             raise
 
     def get_available_models(self) -> List[str]:
-        return [
-            # GPT-4o family
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4o-2024-11-20",
-            "gpt-4o-audio-preview",
-            "gpt-4o-mini-audio-preview",
-            # GPT-4.1 family
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4.1-nano",
-            # o-series reasoning
-            "o3",
-            "o3-mini",
-            "o4-mini",
-            "o1",
-            "o1-pro",
-            "o1-mini",
-            "o1-preview",
-            # Legacy
-            "gpt-4-turbo",
-            "gpt-4",
-            "gpt-3.5-turbo",
-        ]
+        return _model_ids(PROVIDER_CATALOG["OpenAI"]["recommended_models"])
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Anthropic Claude
-# ─────────────────────────────────────────────────────────────────────────────
 
 class AnthropicProvider(LLMProvider):
-
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514", **kwargs):
         super().__init__(api_key, model, **kwargs)
         try:
@@ -170,7 +441,7 @@ class AnthropicProvider(LLMProvider):
     def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
         try:
             system_msg = ""
-            user_msgs  = []
+            user_msgs = []
             for m in messages:
                 if m["role"] == "system":
                     system_msg = m["content"]
@@ -191,127 +462,25 @@ class AnthropicProvider(LLMProvider):
             raise
 
     def get_available_models(self) -> List[str]:
-        return [
-            # Claude 4 family
-            "claude-sonnet-4-20250514",
-            "claude-opus-4-20250514",
-            # Claude 3.7
-            "claude-3-7-sonnet-20250219",
-            # Claude 3.5 family
-            "claude-3-5-sonnet-20241022",
-            "claude-3-5-haiku-20241022",
-            # Claude 3 family
-            "claude-3-opus-20240229",
-            "claude-3-haiku-20240307",
-        ]
+        return _model_ids(PROVIDER_CATALOG["Anthropic (Claude)"]["recommended_models"])
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DeepSeek
-# ─────────────────────────────────────────────────────────────────────────────
-
-class DeepSeekProvider(LLMProvider):
-
-    def __init__(self, api_key: str, model: str = "deepseek-chat", **kwargs):
-        super().__init__(api_key, model, **kwargs)
-        self.base_url = kwargs.get("base_url", "https://api.deepseek.com/v1")
-
-    def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type":  "application/json",
-            }
-            data = dict(model=self.model, messages=messages,
-                        temperature=temperature, max_tokens=max_tokens)
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers, json=data, timeout=90,
-            )
-            resp.raise_for_status()
-            body   = resp.json()
-            tokens = body.get("usage", {}).get("total_tokens", 0)
-            return body["choices"][0]["message"]["content"], tokens
-        except Exception as e:
-            logger.error(f"DeepSeek error: {e}")
-            raise
-
-    def get_available_models(self) -> List[str]:
-        return [
-            "deepseek-chat",
-            "deepseek-reasoner",
-            "deepseek-coder",
-            "deepseek-prover-v2-671b",
-        ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Mistral
-# ─────────────────────────────────────────────────────────────────────────────
-
-class MistralProvider(LLMProvider):
-
-    def __init__(self, api_key: str, model: str = "mistral-large-latest", **kwargs):
-        super().__init__(api_key, model, **kwargs)
-        try:
-            from mistralai import Mistral
-            self.client = Mistral(api_key=api_key)
-        except ImportError:
-            raise ImportError("Run: pip install mistralai")
-
-    def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
-        try:
-            resp = self.client.chat.complete(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            tokens = resp.usage.total_tokens if resp.usage else 0
-            return resp.choices[0].message.content, tokens
-        except Exception as e:
-            logger.error(f"Mistral error: {e}")
-            raise
-
-    def get_available_models(self) -> List[str]:
-        return [
-            "mistral-large-latest",
-            "mistral-medium-latest",
-            "mistral-small-latest",
-            "mistral-saba-latest",
-            "open-mistral-nemo",
-            "open-mistral-7b",
-            "open-mixtral-8x7b",
-            "open-mixtral-8x22b",
-            "codestral-latest",
-            "pixtral-large-latest",
-            "pixtral-12b-2409",
-            "ministral-8b-latest",
-        ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Google Gemini
-# ─────────────────────────────────────────────────────────────────────────────
 
 class GeminiProvider(LLMProvider):
-
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", **kwargs):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash", **kwargs):
         super().__init__(api_key, model, **kwargs)
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            self.genai   = genai
+            self.genai = genai
             self._client = genai.GenerativeModel(model)
         except ImportError:
             raise ImportError("Run: pip install google-generativeai")
 
     def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
         try:
-            # Build a single prompt string from the message list
             parts = []
             for m in messages:
-                role    = m["role"].upper()
+                role = m["role"].upper()
                 content = m["content"]
                 if role == "SYSTEM":
                     parts.append(f"[SYSTEM]: {content}")
@@ -321,7 +490,7 @@ class GeminiProvider(LLMProvider):
                     parts.append(f"[ASSISTANT]: {content}")
             prompt = "\n\n".join(parts)
 
-            cfg  = self.genai.GenerationConfig(
+            cfg = self.genai.GenerationConfig(
                 temperature=temperature,
                 max_output_tokens=max_tokens,
             )
@@ -333,121 +502,28 @@ class GeminiProvider(LLMProvider):
             raise
 
     def get_available_models(self) -> List[str]:
-        return [
-            # Gemini 2.5
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            # Gemini 2.0
-            "gemini-2.0-flash",
-            "gemini-2.0-flash-lite",
-            # Gemini 1.5
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-8b",
-        ]
+        return _model_ids(PROVIDER_CATALOG["Google Gemini"]["recommended_models"])
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Kimi / Moonshot AI
-# ─────────────────────────────────────────────────────────────────────────────
-
-class KimiProvider(LLMProvider):
-    """Moonshot AI (Kimi) — uses OpenAI-compatible REST API."""
-
-    def __init__(self, api_key: str, model: str = "moonshot-v1-auto", **kwargs):
-        super().__init__(api_key, model, **kwargs)
-        self.base_url = kwargs.get("base_url", "https://api.moonshot.cn/v1")
-
-    def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type":  "application/json",
-            }
-            data = dict(model=self.model, messages=messages,
-                        temperature=temperature, max_tokens=max_tokens)
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers, json=data, timeout=120,
-            )
-            resp.raise_for_status()
-            body   = resp.json()
-            tokens = body.get("usage", {}).get("total_tokens", 0)
-            return body["choices"][0]["message"]["content"], tokens
-        except Exception as e:
-            logger.error(f"Kimi/Moonshot error: {e}")
-            raise
-
-    def get_available_models(self) -> List[str]:
-        return [
-            "moonshot-v1-auto",
-            "moonshot-v1-8k",
-            "moonshot-v1-32k",
-            "moonshot-v1-128k",
-            "kimi-latest",
-        ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Grok / xAI
-# ─────────────────────────────────────────────────────────────────────────────
-
-class GrokProvider(LLMProvider):
-    """xAI Grok — uses OpenAI-compatible REST API."""
-
-    def __init__(self, api_key: str, model: str = "grok-3", **kwargs):
-        super().__init__(api_key, model, **kwargs)
-        self.base_url = kwargs.get("base_url", "https://api.x.ai/v1")
-
-    def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type":  "application/json",
-            }
-            data = dict(model=self.model, messages=messages,
-                        temperature=temperature, max_tokens=max_tokens)
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers, json=data, timeout=90,
-            )
-            resp.raise_for_status()
-            body   = resp.json()
-            tokens = body.get("usage", {}).get("total_tokens", 0)
-            return body["choices"][0]["message"]["content"], tokens
-        except Exception as e:
-            logger.error(f"Grok/xAI error: {e}")
-            raise
-
-    def get_available_models(self) -> List[str]:
-        return [
-            "grok-3",
-            "grok-3-fast",
-            "grok-3-mini",
-            "grok-3-mini-fast",
-            "grok-2",
-            "grok-2-mini",
-        ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Ollama (local)
-# ─────────────────────────────────────────────────────────────────────────────
 
 class OllamaProvider(LLMProvider):
-
-    def __init__(self, api_key: str = "", model: str = "llama3.2",
-                 base_url: str = "http://localhost:11434", **kwargs):
+    def __init__(
+        self,
+        api_key: str = "",
+        model: str = "llama3.2",
+        base_url: str = "http://localhost:11434",
+        **kwargs,
+    ):
         super().__init__(api_key, model, **kwargs)
-        self.base_url = base_url.rstrip('/')
+        self.base_url = (base_url or "http://localhost:11434").rstrip("/")
+        self.timeout = kwargs.get("timeout", 180)
 
     def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
-        """Uses Ollama's /api/chat endpoint (proper chat, not flat-prompt)."""
+        """Use Ollama's local /api/chat endpoint."""
         try:
             data = {
-                "model":    self.model,
+                "model": self.model,
                 "messages": messages,
-                "stream":   False,
+                "stream": False,
                 "options": {
                     "temperature": temperature,
                     "num_predict": max_tokens,
@@ -455,11 +531,12 @@ class OllamaProvider(LLMProvider):
             }
             resp = requests.post(
                 f"{self.base_url}/api/chat",
-                json=data, timeout=180,
+                json=data,
+                timeout=self.timeout,
             )
             resp.raise_for_status()
-            body   = resp.json()
-            text   = body.get("message", {}).get("content", "")
+            body = resp.json()
+            text = body.get("message", {}).get("content", "")
             tokens = body.get("eval_count", 0) + body.get("prompt_eval_count", 0)
             return text, tokens
         except Exception as e:
@@ -470,74 +547,152 @@ class OllamaProvider(LLMProvider):
         try:
             resp = requests.get(f"{self.base_url}/api/tags", timeout=10)
             resp.raise_for_status()
-            return [m["name"] for m in resp.json().get("models", [])]
+            discovered = LLMManager.parse_discovered_models("ollama_tags", resp.json())
+            return discovered or _model_ids(PROVIDER_CATALOG["Ollama (Local)"]["recommended_models"])
         except Exception:
-            return [
-                "llama3.2", "llama3.1", "llama3",
-                "llama2", "mistral", "gemma2",
-                "phi3", "qwen2", "codellama",
-            ]
+            return _model_ids(PROVIDER_CATALOG["Ollama (Local)"]["recommended_models"])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Generic OpenAI-compatible
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Shared OpenAI-compatible adapter
+# ---------------------------------------------------------------------------
 
-class GenericOpenAIProvider(LLMProvider):
-
-    def __init__(self, api_key: str, model: str, base_url: str, **kwargs):
+class OpenAICompatibleProvider(LLMProvider):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: Optional[str] = None,
+        profile: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
+        profile = profile or {}
         super().__init__(api_key, model, **kwargs)
-        self.base_url = base_url.rstrip('/')
+        self.profile = profile
+        self.display_name = profile.get("display_name", "OpenAI-compatible endpoint")
+        resolved_base_url = base_url or profile.get("base_url")
+        if not resolved_base_url:
+            raise ValueError(f"Base URL is required for {self.display_name}.")
+        self.base_url = resolved_base_url.rstrip("/")
+        self.timeout = kwargs.get("timeout", profile.get("timeout", 90))
+        self.extra_headers = dict(profile.get("extra_headers", {}))
+        self.extra_headers.update(kwargs.get("extra_headers", {}) or {})
 
     def chat_completion_with_tokens(self, messages, temperature=0.05, max_tokens=4000, **kwargs):
         try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type":  "application/json",
-            }
-            data = dict(model=self.model, messages=messages,
-                        temperature=temperature, max_tokens=max_tokens)
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            headers.update(self.extra_headers)
+
+            data = dict(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            data.update(kwargs)
             resp = requests.post(
                 f"{self.base_url}/chat/completions",
-                headers=headers, json=data, timeout=90,
+                headers=headers,
+                json=data,
+                timeout=self.timeout,
             )
             resp.raise_for_status()
-            body   = resp.json()
+            body = resp.json()
             tokens = body.get("usage", {}).get("total_tokens", 0)
             return body["choices"][0]["message"]["content"], tokens
         except Exception as e:
-            logger.error(f"Generic provider error: {e}")
+            logger.error(f"{self.display_name} error: {e}")
             raise
 
     def get_available_models(self) -> List[str]:
-        return [self.model]
+        return _model_ids(self.profile.get("recommended_models", [])) or [self.model]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# Compatibility aliases for external imports. The duplicated REST
+# implementations were removed; these names now use the shared adapter.
+GenericOpenAIProvider = OpenAICompatibleProvider
+
+
+def _profile_provider(profile_name: str):
+    profile = PROVIDER_CATALOG[profile_name]
+
+    def factory(api_key: str, model: Optional[str] = None, **kwargs) -> OpenAICompatibleProvider:
+        selected_model = model or profile["default_model"]
+        base_url = kwargs.pop("base_url", None) or profile.get("base_url")
+        return OpenAICompatibleProvider(
+            api_key,
+            selected_model,
+            base_url=base_url,
+            profile=_copy_profile(profile),
+            **kwargs,
+        )
+
+    return factory
+
+
+DeepSeekProvider = _profile_provider("DeepSeek")
+MistralProvider = _profile_provider("Mistral")
+KimiProvider = _profile_provider("Kimi (Moonshot)")
+GrokProvider = _profile_provider("Grok (xAI)")
+
+
+# ---------------------------------------------------------------------------
 # Manager
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 class LLMManager:
-
-    PROVIDERS: Dict[str, type] = {
-        "OpenAI":                    OpenAIProvider,
-        "Anthropic (Claude)":        AnthropicProvider,
-        "Google Gemini":             GeminiProvider,
-        "DeepSeek":                  DeepSeekProvider,
-        "Mistral":                   MistralProvider,
-        "Kimi (Moonshot)":           KimiProvider,
-        "Grok (xAI)":               GrokProvider,
-        "Ollama (Local)":            OllamaProvider,
-        "Custom OpenAI-Compatible":  GenericOpenAIProvider,
+    PROVIDERS: Dict[str, Any] = {
+        "OpenAI": OpenAIProvider,
+        "Anthropic (Claude)": AnthropicProvider,
+        "Google Gemini": GeminiProvider,
+        "OpenRouter": _profile_provider("OpenRouter"),
+        "DeepSeek": DeepSeekProvider,
+        "Mistral": MistralProvider,
+        "Kimi (Moonshot)": KimiProvider,
+        "Grok (xAI)": GrokProvider,
+        "Ollama (Local)": OllamaProvider,
+        "LM Studio": _profile_provider("LM Studio"),
+        "vLLM": _profile_provider("vLLM"),
+        "LocalAI": _profile_provider("LocalAI"),
+        "Custom OpenAI-Compatible": GenericOpenAIProvider,
     }
 
     def __init__(self, provider_name: str, api_key: str, model: str, **kwargs):
-        if provider_name not in self.PROVIDERS:
-            raise ValueError(f"Unknown provider: {provider_name}. "
-                             f"Supported: {list(self.PROVIDERS)}")
+        if provider_name not in PROVIDER_CATALOG:
+            supported = ", ".join(PROVIDER_CATALOG)
+            raise ValueError(
+                f"Unknown provider: {provider_name}. Supported providers: {supported}. "
+                "If your service is OpenAI-compatible, choose Custom OpenAI-Compatible "
+                "and enter its Base URL."
+            )
+
         self.provider_name = provider_name
-        cls = self.PROVIDERS[provider_name]
-        self.provider: LLMProvider = cls(api_key, model, **kwargs)
+        self.profile = self.get_provider_profile(provider_name)
+        selected_model = model or self.profile["default_model"]
+        adapter = self.profile["adapter"]
+
+        if adapter == "native_openai":
+            self.provider = OpenAIProvider(api_key, selected_model, **kwargs)
+        elif adapter == "native_anthropic":
+            self.provider = AnthropicProvider(api_key, selected_model, **kwargs)
+        elif adapter == "native_gemini":
+            self.provider = GeminiProvider(api_key, selected_model, **kwargs)
+        elif adapter == "native_ollama":
+            base_url = kwargs.pop("base_url", None) or self.profile.get("base_url")
+            self.provider = OllamaProvider(api_key, selected_model, base_url=base_url, **kwargs)
+        elif adapter == "openai_compatible":
+            base_url = kwargs.pop("base_url", None) or self.profile.get("base_url")
+            self.provider = OpenAICompatibleProvider(
+                api_key,
+                selected_model,
+                base_url=base_url,
+                profile=self.profile,
+                **kwargs,
+            )
+        else:
+            raise ValueError(f"Unsupported adapter type for {provider_name}: {adapter}")
 
     def chat_completion_with_tokens(self, messages, **kwargs) -> Tuple[str, int]:
         return self.provider.chat_completion_with_tokens(messages, **kwargs)
@@ -554,35 +709,28 @@ class LLMManager:
         max_tokens: int = 4000,
     ) -> Tuple[Any, int]:
         """
-        Force the LLM to return data matching a Pydantic response_model,
-        using the `instructor` library for schema enforcement and auto-retry
-        on malformed JSON (up to 3 attempts).
+        Best-effort schema-enforced output via instructor.
 
-        Supported providers: OpenAI, Anthropic (Claude), Mistral,
-        DeepSeek, Ollama (Local), Custom OpenAI-Compatible.
-        Google Gemini falls back to plain structured parsing automatically.
-
-        Returns (parsed_pydantic_instance, tokens_used).
-        Raises ImportError if instructor is not installed.
+        Structured calls may return token count 0 when the wrapped provider
+        client does not expose usage in the parsed response.
         """
         try:
             import instructor
         except ImportError:
             raise ImportError(
-                "Run: pip install instructor>=1.2.0  "
+                "Run: pip install instructor>=1.2.0 "
                 "(required for structured output / anti-hallucination mode)"
             )
 
         pname = self.provider_name
+        adapter = self.profile["adapter"]
 
         try:
-            if pname in ("OpenAI", "Custom OpenAI-Compatible",
-                         "DeepSeek", "Kimi (Moonshot)", "Grok (xAI)",
-                         "Ollama (Local)"):
+            if adapter in ("native_openai", "openai_compatible", "native_ollama"):
                 import openai
                 raw_client = openai.OpenAI(
                     api_key=self.provider.api_key or "ollama",
-                    base_url=getattr(self.provider, 'base_url', None),
+                    base_url=getattr(self.provider, "base_url", None),
                 )
                 client = instructor.from_openai(raw_client)
                 resp = client.chat.completions.create(
@@ -593,9 +741,9 @@ class LLMManager:
                     max_tokens=max_tokens,
                     max_retries=3,
                 )
-                return resp, 0  # instructor doesn't expose usage; token count via normal path
+                return resp, 0
 
-            elif pname == "Anthropic (Claude)":
+            if adapter == "native_anthropic":
                 import anthropic
                 raw_client = anthropic.Anthropic(api_key=self.provider.api_key)
                 client = instructor.from_anthropic(raw_client)
@@ -613,140 +761,145 @@ class LLMManager:
                 )
                 return resp, 0
 
-            elif pname == "Mistral":
-                from mistralai import Mistral
-                raw_client = Mistral(api_key=self.provider.api_key)
-                client = instructor.from_mistral(raw_client)
-                resp = client.chat.completions.create(
-                    model=self.provider.model,
-                    messages=messages,
-                    response_model=response_model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    max_retries=3,
-                )
-                return resp, 0
-
-            else:
-                raise NotImplementedError(
-                    f"Structured output not natively supported for {pname}. "
-                    "Falling back to JSON parse."
-                )
-
+            raise NotImplementedError(
+                f"Structured output not natively supported for {pname}. "
+                "Falling back to JSON parse."
+            )
         except instructor.exceptions.InstructorRetryException as exc:
             raise RuntimeError(f"instructor failed after 3 retries: {exc}") from exc
 
     @classmethod
     def get_supported_providers(cls) -> List[str]:
-        return list(cls.PROVIDERS.keys())
+        return list(PROVIDER_CATALOG.keys())
+
+    @classmethod
+    def get_provider_profile(cls, provider_name: str) -> Dict[str, Any]:
+        if provider_name not in PROVIDER_CATALOG:
+            supported = ", ".join(PROVIDER_CATALOG)
+            raise ValueError(f"Unknown provider: {provider_name}. Supported providers: {supported}.")
+        return _copy_profile(PROVIDER_CATALOG[provider_name])
+
+    @classmethod
+    def get_provider_catalog(cls) -> Dict[str, Dict[str, Any]]:
+        return {name: _copy_profile(profile) for name, profile in PROVIDER_CATALOG.items()}
 
     @classmethod
     def get_default_models(cls) -> Dict[str, str]:
-        return {
-            "OpenAI":                   "gpt-4o-mini",
-            "Anthropic (Claude)":       "claude-sonnet-4-20250514",
-            "Google Gemini":            "gemini-2.5-flash",
-            "DeepSeek":                 "deepseek-chat",
-            "Mistral":                  "mistral-large-latest",
-            "Kimi (Moonshot)":           "moonshot-v1-auto",
-            "Grok (xAI)":               "grok-3-mini-fast",
-            "Ollama (Local)":           "llama3.2",
-            "Custom OpenAI-Compatible": "gpt-3.5-turbo",
-        }
+        return {name: profile["default_model"] for name, profile in PROVIDER_CATALOG.items()}
 
     @classmethod
     def get_provider_info(cls) -> Dict[str, Dict[str, Any]]:
-        return {
-            "OpenAI":                   {"requires_api_key": True,  "free_tier": False,   "website": "https://platform.openai.com"},
-            "Anthropic (Claude)":       {"requires_api_key": True,  "free_tier": False,   "website": "https://console.anthropic.com"},
-            "Google Gemini":            {"requires_api_key": True,  "free_tier": True,    "website": "https://aistudio.google.com"},
-            "DeepSeek":                 {"requires_api_key": True,  "free_tier": True,    "website": "https://platform.deepseek.com"},
-            "Mistral":                  {"requires_api_key": True,  "free_tier": True,    "website": "https://console.mistral.ai"},
-            "Kimi (Moonshot)":           {"requires_api_key": True,  "free_tier": True,    "website": "https://platform.moonshot.cn"},
-            "Grok (xAI)":               {"requires_api_key": True,  "free_tier": False,   "website": "https://console.x.ai"},
-            "Ollama (Local)":           {"requires_api_key": False, "free_tier": True,    "website": "https://ollama.ai"},
-            "Custom OpenAI-Compatible": {"requires_api_key": True,  "free_tier": "Varies","website": "Custom"},
-        }
+        info: Dict[str, Dict[str, Any]] = {}
+        for name, profile in PROVIDER_CATALOG.items():
+            item = _copy_profile(profile)
+            item["privacy_label"] = PRIVACY_LEVELS[item["privacy_level"]]
+            item["free_tier"] = item.get("free_tier", FREE_TIER_BY_PROVIDER.get(name, False))
+            item["recommended_model_ids"] = _model_ids(item.get("recommended_models", []))
+            info[name] = item
+        return info
 
     @classmethod
     def needs_base_url(cls, provider_name: str) -> bool:
-        return provider_name in ("Ollama (Local)", "Custom OpenAI-Compatible")
+        profile = PROVIDER_CATALOG.get(provider_name, {})
+        return bool(profile.get("show_base_url"))
 
     @classmethod
     def get_models_for_provider(cls, provider_name: str) -> List[str]:
-        """Return built-in + user-added custom models for the given provider."""
-        # Get built-in models — use static list to avoid needing SDK installed
-        builtin = cls._BUILTIN_MODELS.get(provider_name, [])
-        if not builtin and provider_name in cls.PROVIDERS:
-            # Fallback: try instantiation (works for providers w/o SDK deps)
-            try:
-                default_model = cls.get_default_models().get(provider_name, "")
-                builtin = cls.PROVIDERS[provider_name](
-                    "", default_model
-                ).get_available_models()
-            except Exception:
-                builtin = []
-        # Append user-added custom models
+        """Return recommended + user-added model IDs. This is not validation."""
+        profile = PROVIDER_CATALOG.get(provider_name)
+        recommended = _model_ids(profile.get("recommended_models", [])) if profile else []
         custom = load_custom_models().get(provider_name, [])
-        combined = list(builtin)
-        for m in custom:
-            if m not in combined:
-                combined.append(m)
+        combined = list(recommended)
+        for model in custom:
+            if model not in combined:
+                combined.append(model)
         return combined
 
-    # Static model lists so we don't need to instantiate providers (avoids SDK import errors)
-    _BUILTIN_MODELS: Dict[str, List[str]] = {
-        "OpenAI": [
-            "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-11-20",
-            "gpt-4o-audio-preview", "gpt-4o-mini-audio-preview",
-            "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
-            "o3", "o3-mini", "o4-mini",
-            "o1", "o1-pro", "o1-mini", "o1-preview",
-            "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo",
-        ],
-        "Anthropic (Claude)": [
-            "claude-sonnet-4-20250514", "claude-opus-4-20250514",
-            "claude-3-7-sonnet-20250219",
-            "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
-            "claude-3-opus-20240229", "claude-3-haiku-20240307",
-        ],
-        "Google Gemini": [
-            "gemini-2.5-pro", "gemini-2.5-flash",
-            "gemini-2.0-flash", "gemini-2.0-flash-lite",
-            "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b",
-        ],
-        "DeepSeek": [
-            "deepseek-chat", "deepseek-reasoner",
-            "deepseek-coder", "deepseek-prover-v2-671b",
-        ],
-        "Mistral": [
-            "mistral-large-latest", "mistral-medium-latest", "mistral-small-latest",
-            "mistral-saba-latest", "open-mistral-nemo",
-            "open-mistral-7b", "open-mixtral-8x7b", "open-mixtral-8x22b",
-            "codestral-latest", "pixtral-large-latest", "pixtral-12b-2409",
-            "ministral-8b-latest",
-        ],
-        "Kimi (Moonshot)": [
-            "moonshot-v1-auto", "moonshot-v1-8k",
-            "moonshot-v1-32k", "moonshot-v1-128k",
-            "kimi-latest",
-        ],
-        "Grok (xAI)": [
-            "grok-3", "grok-3-fast",
-            "grok-3-mini", "grok-3-mini-fast",
-            "grok-2", "grok-2-mini",
-        ],
-        "Ollama (Local)": [
-            "llama3.2", "llama3.1", "llama3",
-            "llama2", "mistral", "gemma2",
-            "phi3", "qwen2", "codellama",
-        ],
-    }
+    @staticmethod
+    def parse_discovered_models(discovery_type: str, payload: Any) -> List[str]:
+        if not payload:
+            return []
+
+        if isinstance(payload, list):
+            items = payload
+        elif discovery_type == "ollama_tags":
+            items = payload.get("models", [])
+        elif discovery_type == "gemini_models":
+            items = payload.get("models", [])
+        else:
+            items = payload.get("data", payload.get("models", []))
+
+        models: List[str] = []
+        for item in items:
+            model_id = item if isinstance(item, str) else item.get("id") or item.get("name")
+            if not model_id:
+                continue
+            model_id = str(model_id)
+            if discovery_type == "gemini_models":
+                methods = item.get("supportedGenerationMethods", []) if isinstance(item, dict) else []
+                if methods and "generateContent" not in methods:
+                    continue
+                if model_id.startswith("models/"):
+                    model_id = model_id.split("/", 1)[1]
+            if model_id not in models:
+                models.append(model_id)
+        return models
+
+    @classmethod
+    def discover_models(
+        cls,
+        provider_name: str,
+        api_key: str = "",
+        base_url: Optional[str] = None,
+        timeout: int = 10,
+    ) -> List[str]:
+        """
+        Explicit model discovery. This is never called during startup; UIs should
+        call it only from an explicit refresh action.
+        """
+        profile = cls.get_provider_profile(provider_name)
+        discovery = profile.get("model_discovery")
+        if not discovery:
+            return cls.get_models_for_provider(provider_name)
+
+        discovery_type = discovery["type"]
+        endpoint = discovery["endpoint"]
+        headers: Dict[str, str] = {}
+        params: Dict[str, str] = {}
+
+        if discovery_type == "ollama_tags":
+            resolved_base = base_url or profile.get("base_url") or "http://localhost:11434"
+            url = _join_url(resolved_base, endpoint)
+        elif discovery_type == "anthropic_models":
+            url = endpoint
+            if api_key:
+                headers["x-api-key"] = api_key
+            headers["anthropic-version"] = "2023-06-01"
+        elif discovery_type == "gemini_models":
+            url = endpoint
+            if api_key:
+                params["key"] = api_key
+        else:
+            resolved_base = base_url or profile.get("base_url")
+            if not resolved_base:
+                raise ValueError(f"Base URL is required to discover models for {provider_name}.")
+            url = _join_url(resolved_base, endpoint)
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
+        request_kwargs: Dict[str, Any] = {"timeout": timeout}
+        if headers:
+            request_kwargs["headers"] = headers
+        if params:
+            request_kwargs["params"] = params
+        resp = requests.get(url, **request_kwargs)
+        resp.raise_for_status()
+        return cls.parse_discovered_models(discovery_type, resp.json())
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Utility functions
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 
 def test_provider_connection(provider_name: str, api_key: str, model: str, **kwargs) -> Tuple[bool, str]:
     """Returns (success, message)."""
@@ -754,7 +907,7 @@ def test_provider_connection(provider_name: str, api_key: str, model: str, **kwa
         mgr = LLMManager(provider_name, api_key, model, **kwargs)
         msgs = [
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user",   "content": "Reply with exactly: Connection OK"},
+            {"role": "user", "content": "Reply with exactly: Connection OK"},
         ]
         text, tokens = mgr.chat_completion_with_tokens(msgs, max_tokens=20)
         ok = bool(text and len(text.strip()) > 0)
@@ -765,19 +918,25 @@ def test_provider_connection(provider_name: str, api_key: str, model: str, **kwa
 
 def get_install_instructions() -> Dict[str, str]:
     return {
-        "OpenAI":                   "pip install openai",
-        "Anthropic (Claude)":       "pip install anthropic",
-        "Google Gemini":            "pip install google-generativeai",
-        "DeepSeek":                 "No extra package (uses requests)",
-        "Mistral":                  "pip install mistralai",
-        "Kimi (Moonshot)":           "No extra package (uses requests)",
-        "Grok (xAI)":               "No extra package (uses requests)",
-        "Ollama (Local)":           "Install from https://ollama.ai then run: ollama serve",
-        "Custom OpenAI-Compatible": "No extra package (uses requests)",
+        "OpenAI": "pip install openai",
+        "Anthropic (Claude)": "pip install anthropic",
+        "Google Gemini": "pip install google-generativeai",
+        "OpenRouter": "Uses the OpenAI-compatible adapter; no extra package",
+        "DeepSeek": "Uses the OpenAI-compatible adapter; no extra package",
+        "Mistral": "Uses the OpenAI-compatible adapter; no extra package",
+        "Kimi (Moonshot)": "Uses the OpenAI-compatible adapter; no extra package",
+        "Grok (xAI)": "Uses the OpenAI-compatible adapter; no extra package",
+        "Ollama (Local)": "Install from https://ollama.com then run: ollama serve",
+        "LM Studio": "Run LM Studio's local OpenAI-compatible server",
+        "vLLM": "Run vLLM with its OpenAI-compatible server enabled",
+        "LocalAI": "Run LocalAI with its OpenAI-compatible server enabled",
+        "Custom OpenAI-Compatible": "No extra package; enter the endpoint Base URL",
     }
 
 
 if __name__ == "__main__":
     for name, info in LLMManager.get_provider_info().items():
-        print(f"{name}: API key required={info['requires_api_key']}  "
-              f"Free tier={info['free_tier']}  {info['website']}")
+        print(
+            f"{name}: API key required={info['requires_api_key']} "
+            f"Privacy={info['privacy_label']} {info['website']}"
+        )

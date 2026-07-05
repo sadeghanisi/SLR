@@ -207,14 +207,22 @@
     updateCustomModelUI();
     S.config.model = getActiveModel();
 
-    const needsUrl = p === "Ollama (Local)" || p === "Custom OpenAI-Compatible";
+    const info = S.info[p] || {};
+    const needsUrl = !!info.show_base_url;
     $("#baseUrlGroup").style.display = needsUrl ? "block" : "none";
     if (needsUrl && !$("#baseUrlInput").value) {
-      $("#baseUrlInput").value = p === "Ollama (Local)" ? "http://localhost:11434" : "";
+      $("#baseUrlInput").value = info.base_url || "";
+    } else if (!needsUrl) {
+      $("#baseUrlInput").value = "";
     }
 
-    const info = S.info[p] || {};
     const infoHtml = [];
+    if (info.privacy_label) {
+      infoHtml.push(`<p class="privacy-label privacy-${info.privacy_level}">${info.privacy_label}</p>`);
+    }
+    if (info.privacy_note) {
+      infoHtml.push(`<p class="privacy-note">${escHtml(info.privacy_note)}</p>`);
+    }
     if (info.website && info.website !== "Custom") {
       infoHtml.push(`<p>Website: <a href="${info.website}" target="_blank" rel="noopener">${info.website}</a></p>`);
     }
@@ -223,6 +231,9 @@
     }
     if (info.free_tier === true) {
       infoHtml.push(`<p style="color:var(--accept)">Free tier available.</p>`);
+    }
+    if (info.model_id_guidance && info.model_id_guidance.latest_alias_warning) {
+      infoHtml.push(`<p class="privacy-note">${escHtml(info.model_id_guidance.latest_alias_warning)}</p>`);
     }
     $("#providerInfo").innerHTML = infoHtml.join("") || '<p class="info-muted">Select a provider to see details.</p>';
   }
@@ -361,7 +372,7 @@
         return;
       }
       S.refFilePath = data.path;
-      status.textContent = `Uploaded: ${data.filename} (${(data.size / 1024).toFixed(1)} KB)`;
+      status.textContent = `Uploaded: ${data.original_filename || data.filename} (${(data.size / 1024).toFixed(1)} KB)`;
       showToast("Reference file uploaded", "success");
       $("#parseBtn").disabled = false;
     } catch (e) {
@@ -660,15 +671,15 @@
     body.innerHTML = files.map((f, i) => `
       <tr>
         <td style="color:var(--ink-muted);font-family:var(--font-mono);font-size:0.8rem">${i + 1}</td>
-        <td class="pdf-filename">${escHtml(f.name)}</td>
+        <td class="pdf-filename">${escHtml(f.display_name || f.name)}</td>
         <td class="pdf-size">${formatBytes(f.size)}</td>
         <td>
           <div style="display:flex;gap:var(--sp-2)">
-            <button class="pdf-action-btn" data-action="view"   data-name="${escHtml(f.name)}" title="Open PDF in new tab">
+            <button class="pdf-action-btn" data-action="view" data-name="${escHtml(f.name)}" data-display="${escHtml(f.display_name || f.name)}" title="Open PDF in new tab">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               View
             </button>
-            <button class="pdf-action-btn del" data-action="delete" data-name="${escHtml(f.name)}" title="Delete this PDF">
+            <button class="pdf-action-btn del" data-action="delete" data-name="${escHtml(f.name)}" data-display="${escHtml(f.display_name || f.name)}" title="Delete this PDF">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
               Delete
             </button>
@@ -682,15 +693,16 @@
       btn.addEventListener("click", async () => {
         const action = btn.dataset.action;
         const name   = btn.dataset.name;
+        const displayName = btn.dataset.display || name;
         if (action === "view") {
           window.open(`/api/pdfs/file/${encodeURIComponent(name)}`, "_blank");
         } else if (action === "delete") {
-          if (!confirm(`Delete "${name}"?`)) return;
+          if (!confirm(`Delete "${displayName}"?`)) return;
           try {
             const resp = await api("/api/pdfs/delete", { method: "POST", body: { filename: name } });
             const data = await resp.json();
             if (data.error) { showToast(data.error, "error"); return; }
-            showToast(`Deleted ${name}`, "info");
+            showToast(`Deleted ${displayName}`, "info");
             await refreshPdfList();
             if (data.remaining === 0) $("#startProcessBtn").disabled = true;
           } catch (e) {

@@ -103,11 +103,12 @@ An **API Key** is like a password or ID card that tells the AI company "this req
 
 Different AI providers offer several versions of their AI, called **models**. Larger, more powerful models are more expensive but make better decisions. Smaller models are cheaper and faster.
 
-For example, OpenAI offers:
-- **gpt-4o** — most capable, more expensive
-- **gpt-4o-mini** — nearly as good, much cheaper (recommended for large reviews)
+For example, OpenAI model choices may include:
+- **gpt-5.5** — quality-focused default
+- **gpt-5.4-mini** — balanced cost and quality
+- **gpt-5.4-nano** — lower-cost option
 
-You choose the model inside the tool. If you are unsure, the tool defaults to a good balance of quality and cost.
+You choose the model inside the tool. You can also type any model ID manually, including newly released IDs that are not yet in the built-in recommendation list.
 
 ### What Is PRISMA?
 
@@ -226,7 +227,9 @@ The tool requires several supporting software packages:
 
 ## 6. Choosing and Setting Up an AI Provider
 
-This is the most important decision before using the tool. You need AI to screen your papers. Here are all your options, from completely free to paid.
+This is the most important decision before using the tool. You need AI to screen your papers. Providers are labelled by privacy level: local only, direct cloud provider, router / third party, or custom endpoint.
+
+Router providers such as OpenRouter send paper text through an additional third party before it reaches the selected model provider. For maximum privacy, use Ollama or another local model endpoint you control.
 
 ---
 
@@ -312,7 +315,7 @@ This is the most important decision before using the tool. You need AI to screen
 **In the Tool:**
 - Set **Provider** to: `OpenAI`
 - **API Key**: Paste your key
-- **Model**: `gpt-4o-mini` (recommended — very capable and inexpensive)
+- **Model**: `gpt-5.5` for quality, or `gpt-5.4-mini` for balanced cost and quality
 
 ---
 
@@ -380,7 +383,7 @@ This is the most important decision before using the tool. You need AI to screen
 |---|---|
 | I have no budget at all | Ollama (free, local) |
 | I want cheap cloud AI | DeepSeek |
-| I want the most trusted option | OpenAI (gpt-4o-mini) |
+| I want the most trusted option | OpenAI (`gpt-5.5` or `gpt-5.4-mini`) |
 | I care about EU data privacy | Mistral |
 | I already have a Google account | Google Gemini |
 | I want the best scientific reasoning | Anthropic Claude |
@@ -573,7 +576,7 @@ In the **AI Provider Configuration** section:
 1. **Provider**: Click the dropdown and select your AI service (e.g., "OpenAI", "Ollama (Local)", "DeepSeek").
 2. **API Key**: Paste your API key into the field. Click the **"Show"** checkbox if you want to check it.
 3. **Model**: Select a model from the dropdown. If you are unsure:
-   - **OpenAI**: Choose `gpt-4o-mini`
+   - **OpenAI**: Choose `gpt-5.5` for quality or `gpt-5.4-mini` for balanced cost
    - **Anthropic**: Choose `claude-3-5-haiku-20241022`
    - **DeepSeek**: Choose `deepseek-chat`
    - **Ollama**: Type the name of the model you downloaded (e.g., `llama3.2`)
@@ -601,6 +604,8 @@ In the **Processing Settings** section:
 
 **Cache Settings:**
 - **Enable Caching** (checkbox): When checked, the tool remembers which PDFs it has already processed. If you need to re-run processing (e.g., after a crash), it skips files already done. **Always keep this checked.** It saves time and money.
+
+Cache files are now JSON-only during normal app execution. Older `.pkl` cache files are not loaded automatically because pickle can execute unsafe data if a cache file has been tampered with. If you need legacy cache migration, do it manually only from a trusted copy of your own old output folder.
 
 **Two-Stage Processing** (optional):
 - When enabled, the tool first does a quick screen to decide if a paper qualifies, and only extracts detailed data from papers that pass the screening. This saves cost when many papers are likely to be excluded.
@@ -766,7 +771,7 @@ In the **⚙ Setup** tab, click **"Advanced Config"** to access fine-tuning opti
 
 ### Saving and Loading Configurations
 
-To save your current configuration (including AI provider, model, criteria, and settings):
+To save your current configuration (AI provider, model, criteria, paths, and processing settings):
 1. In the **⚙ Setup** tab, click **"Save Settings"**.
 2. Choose a location and filename (e.g., `diabetes_review_settings.json`).
 
@@ -775,6 +780,8 @@ To load a saved configuration:
 2. Select the saved `.json` file.
 
 This is very useful when managing multiple review projects.
+
+API keys are not written to saved JSON settings files. When OS keyring support is available, the desktop GUI stores API keys in your operating system credential manager; otherwise the key stays in memory for the current session or can be supplied through an environment variable such as `SLR_API_KEY`.
 
 ---
 
@@ -861,18 +868,18 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 ### Cost Examples
 
-**Screening 1,000 abstracts with GPT-4o-mini:**
+**Screening 1,000 abstracts with a balanced cloud model:**
 - Each abstract ≈ 400 tokens input + 200 tokens output = 600 tokens
 - 1,000 abstracts × 600 tokens = 600,000 tokens
-- Cost: approximately **$0.09** (nine cents)
+- Cost: check current provider pricing before running a large batch
 
-**Extracting data from 200 full PDFs with GPT-4o-mini:**
+**Extracting data from 200 full PDFs with a balanced cloud model:**
 - Each paper ≈ 10,000 tokens input + 1,000 tokens output = 11,000 tokens
 - 200 papers × 11,000 tokens = 2,200,000 tokens
-- Cost: approximately **$0.33** (thirty-three cents)
+- Cost: check current provider pricing; full-text extraction is usually the main cost driver
 
-**Full review: 3,000 abstracts screened + 150 PDFs extracted with GPT-4o-mini:**
-- Total cost: approximately **$0.50–$1.00** (fifty cents to one dollar)
+**Full review: 3,000 abstracts screened + 150 PDFs extracted:**
+- Total cost varies by model, provider pricing, paper length, and extracted field count
 
 ### Cost Comparison by Provider
 
@@ -881,7 +888,7 @@ You are charged for both input tokens (what you send to the AI) and output token
 | Ollama | llama3.2 | $0.00 | Free — runs locally |
 | DeepSeek | deepseek-chat | ~$0.01 | Very affordable |
 | Google Gemini | gemini-2.0-flash | ~$0.02 | Free tier generous |
-| OpenAI | gpt-4o-mini | ~$0.09 | Great balance |
+| OpenAI | gpt-5.4-mini | Check current pricing | Balanced option |
 | Anthropic | claude-3-5-haiku | ~$0.10 | Fast and accurate |
 | OpenAI | gpt-4o | ~$1.50 | Most capable |
 | Anthropic | claude-3-5-sonnet | ~$1.80 | Excellent quality |
@@ -890,7 +897,7 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 1. **Always enable caching** — If you restart a run or re-process files, the cache prevents re-charging for completed files.
 2. **Test with 5–10 papers first** — Check that your criteria and settings are correct before running all 3,000.
-3. **Use smaller models for abstract screening** — gpt-4o-mini or claude-3-5-haiku are more than sufficient for title/abstract screening.
+3. **Use smaller models for abstract screening** — gpt-5.4-mini, gpt-5.4-nano, or claude-haiku-style models are usually sufficient for title/abstract screening.
 4. **Use larger models only for extraction** — If you need high-quality extraction, upgrade only for the full-text stage.
 5. **Set rate limits** — Avoid accidental bulk processing by keeping rate limits at 1 second initially.
 6. **Monitor tokens in real time** — The Monitor tab shows running token usage so you can stop if costs climb unexpectedly.
@@ -1001,7 +1008,7 @@ You are charged for both input tokens (what you send to the AI) and output token
 **Solution**:
 1. Review and rewrite your inclusion/exclusion criteria to be clearer and more specific.
 2. Test with 10 known papers (5 that should be included, 5 that should not). Analyze where the AI goes wrong.
-3. Try a more capable model (e.g., switch from gpt-4o-mini to gpt-4o).
+3. Try a more capable model (e.g., switch from a balanced/cost model to a quality model).
 4. Add example decisions to your criteria prompt: "For example, a paper titled 'Effect of metformin on HbA1c in type 2 diabetics' SHOULD be included; a paper titled 'Review of diabetes treatments' SHOULD be excluded."
 
 ---
@@ -1146,7 +1153,7 @@ These shortcuts work when the application window is in focus:
 
 **Two-Stage Processing**: An option where the AI first screens papers and then, for those that pass, performs detailed data extraction. Saves time and cost when many papers are expected to be excluded.
 
-**Model**: A specific version of an AI (e.g., gpt-4o-mini is one model made by OpenAI). Different models have different capabilities and prices.
+**Model**: A specific version of an AI (e.g., gpt-5.4-mini is one model made by OpenAI). Different models have different capabilities and prices.
 
 **LLM (Large Language Model)**: A type of AI trained on vast amounts of text, capable of reading, understanding, and generating human language. The AI powering the screening and extraction in this tool is an LLM.
 
@@ -1168,7 +1175,7 @@ These shortcuts work when the application window is in focus:
 
 ## 20. Web Application — Browser-Based Interface (v3.3.0)
 
-Starting with version 3.3.0, the SLR Automation Tool includes a complete **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI — everything runs in your browser, making it easier to use on any computer without configuring a GUI environment.
+Starting with version 3.3.0, the SLR Automation Tool includes a complete **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI — everything runs locally in your browser and on a Flask server bound to `127.0.0.1` on your own computer. It is not intended for public deployment, shared servers, or multi-user hosting.
 
 ### What Is Different About the Web App?
 
@@ -1189,7 +1196,7 @@ Starting with version 3.3.0, the SLR Automation Tool includes a complete **brows
 
 Flask is required for the web app. If you set up using `setup.bat` or the standard `requirements.txt`, it should already be installed. If not:
 ```
-pip install flask flask-cors
+pip install flask
 ```
 
 **Step 2: Launch**
@@ -1209,6 +1216,8 @@ pip install flask flask-cors
 
 You should see the SLR Automation web interface load in your browser. Keep the terminal window open — it is the server. Closing it will stop the app.
 
+Do not expose this local Flask app to the public internet or run it as a shared team server. It is designed for one researcher at a time on the same computer.
+
 ### 20.2 The Four Stages
 
 The web app organises the full review workflow into four sequential stages, accessible by clicking the tabs at the top of the page.
@@ -1217,13 +1226,13 @@ The web app organises the full review workflow into four sequential stages, acce
 
 This is where you set up your AI connection.
 
-1. Select your **AI Provider** from the dropdown (9 options available).
-2. Paste your **API Key** from the provider's dashboard. The key is stored only on your own machine.
-3. Choose a **Model** from the list, or type a custom model ID in the text box below the dropdown (useful for newly released models not yet in the built-in list — e.g., `gpt-4.5`, `claude-opus-4`).
-4. For **Ollama** or **Custom** providers, also enter the **Base URL** (default for Ollama: `http://localhost:11434`).
+1. Select your **AI Provider** from the dropdown. The provider panel shows where paper text is sent.
+2. Paste your **API Key** from the provider's dashboard. The Web App uses it for the current browser session and does not save it to `webapp_settings.json`.
+3. Choose a **Model** from the list, or type a custom model ID in the text box below the dropdown (useful for newly released models not yet in the built-in list — e.g., `gpt-5.5`, `gpt-5.4-mini`, `claude-opus-4`).
+4. For **Ollama**, **LM Studio**, **vLLM**, **LocalAI**, or **Custom** providers, also enter the **Base URL** (default for Ollama: `http://localhost:11434`).
 5. Click **Test Connection** to verify everything is working. A green indicator confirms success.
 
-Your settings (provider, key, model) are **saved automatically** between sessions.
+Your non-secret settings (provider, model, Base URL, and criteria) are **saved automatically** between sessions.
 
 #### Stage 2 — Ingest & Screen
 
@@ -1322,7 +1331,7 @@ This uses your already-configured API key — no extra setup needed.
 Click the **Guide** button in the top-right corner of the screen to open the in-app help drawer. It contains nine sections:
 
 1. **Quick Start** — 5-step walkthrough
-2. **AI Providers** — setup instructions for all 9 providers
+2. **AI Providers** — setup instructions for native providers and OpenAI-compatible profiles
 3. **1 · Configure** — every setting explained
 4. **2 · Ingest & Screen** — file formats, parse, dedup, screening decisions
 5. **3 · Full-Text Processing** — all processing options
@@ -1341,13 +1350,14 @@ The web app automatically saves your configuration to `webapp_settings.json` in 
 
 These settings are restored the next time you load the page.
 
-> **Note:** `webapp_settings.json` contains your API key. The file is listed in `.gitignore` and will not be accidentally committed to a public repository, but treat it with the same care you would any file containing credentials.
+> **Note:** `webapp_settings.json` does **not** contain your API key. If you need maximum privacy for paper text, use Ollama/local models; cloud LLM providers may receive extracted paper text through their APIs, and router providers such as OpenRouter add another third party.
 
 ### 20.6 Important Limitations
 
 The web app is designed as a **single-user, local-server application**. It is not intended for deployment on a public web server because:
 - The in-memory session stores one user's state at a time
-- API keys are stored in plain text on disk
-- There is no authentication layer
+- It is intentionally bound to localhost for use by the researcher sitting at the same computer
+- API keys are not saved by the Web App, but they are still sent to the selected provider when you run cloud LLM requests
+- There is no authentication layer, tenant separation, or production hardening
 
-If you need to run the tool on a remote server for team use, consult a web developer to add appropriate security measures before exposing it to a network.
+If you need team or remote-server use, treat that as a separate product requiring a security review and redesign rather than exposing this local Web App to a network.

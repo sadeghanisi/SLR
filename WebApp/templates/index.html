@@ -94,7 +94,7 @@
             <div class="custom-model-row" id="customModelRow">
               <div class="custom-model-input-wrap">
                 <input type="text" id="customModelInput" class="input-text input-mono"
-                  placeholder="Type a custom model ID to override, e.g. gpt-4.5, o3-pro, llama3.3 …"
+                  placeholder="Type a custom model ID to override, e.g. gpt-5.5, gpt-5.4-mini, llama3.3 …"
                   autocomplete="off" spellcheck="false">
                 <button class="custom-model-clear" id="customModelClear" title="Clear custom model" type="button" style="display:none">×</button>
               </div>
@@ -597,14 +597,17 @@
           </div>
 
           <div class="help-tip">
-            <strong>Tip:</strong> Your settings (provider, API key, model, criteria) are saved automatically between sessions.
+            <strong>Tip:</strong> Your non-secret settings (provider, model, Base URL, criteria) are saved automatically between sessions. API keys are not saved by the Web App.
           </div>
         </section>
 
         <!-- ── AI Providers ──────────────────────────────────────── -->
         <section class="help-topic" id="htopic-providers">
           <h3>AI Providers</h3>
-          <p class="help-lead">Nine providers are supported. All require an API key except Ollama.</p>
+          <p class="help-lead">Native providers and OpenAI-compatible profiles are supported. All cloud providers require an API key except local endpoints such as Ollama.</p>
+          <div class="help-tip">
+            <strong>Privacy labels:</strong> Local-only providers keep paper text on your machine. Router providers such as OpenRouter send paper text through an additional third party before it reaches the selected model provider.
+          </div>
 
           <div class="help-provider-grid">
             <div class="help-provider-card">
@@ -624,8 +627,13 @@
             </div>
             <div class="help-provider-card">
               <div class="help-provider-name">OpenAI <span class="help-badge paid">Paid</span></div>
-              <p>Industry standard. New accounts receive a small free credit. Recommended model: <code>gpt-4o-mini</code> — highly capable and inexpensive (~$0.09 per 1,000 abstracts).</p>
+              <p>Industry standard. Recommended models: <code>gpt-5.5</code> for quality, <code>gpt-5.4-mini</code> for balanced cost, and <code>gpt-5.4-nano</code> for low cost.</p>
               <p><strong>Setup:</strong> <a href="https://platform.openai.com" target="_blank" rel="noopener">platform.openai.com</a> → API keys → Create.</p>
+            </div>
+            <div class="help-provider-card">
+              <div class="help-provider-name">OpenRouter <span class="help-badge trial">Router</span></div>
+              <p>OpenAI-compatible router profile. It can access many model providers through one API key, but paper text passes through OpenRouter before the final model provider.</p>
+              <p><strong>Setup:</strong> <a href="https://openrouter.ai" target="_blank" rel="noopener">openrouter.ai</a> → Keys. Use exact model slugs when reproducibility matters; latest aliases can change over time.</p>
             </div>
             <div class="help-provider-card">
               <div class="help-provider-name">Anthropic (Claude) <span class="help-badge paid">Paid</span></div>
@@ -668,16 +676,16 @@
             <dd>Select your provider from the dropdown. Each provider has different pricing, capabilities, and setup requirements. See the <em>AI Providers</em> tab for details.</dd>
 
             <dt>API Key</dt>
-            <dd>Paste your API key from the provider's dashboard. The key is stored only in <code>webapp_settings.json</code> on your own machine — it is never transmitted anywhere except directly to the AI provider when you run a request.</dd>
+            <dd>Paste your API key from the provider's dashboard. The key is kept in the current browser session and is not saved to <code>webapp_settings.json</code>. For cloud providers, it is sent directly to that provider when you run a request.</dd>
 
             <dt>Model</dt>
-            <dd>Select from the predefined list for your provider. Smaller models (e.g., <code>gpt-4o-mini</code>) are faster and cheaper; larger models produce higher-quality decisions. For most abstract screening tasks, a small/medium model is sufficient.</dd>
+            <dd>Select from the predefined list for your provider, or type any manual model ID. Built-in lists are recommendations only. Smaller models (e.g., <code>gpt-5.4-mini</code>) are faster and cheaper; larger models produce higher-quality decisions. For reproducible research, prefer stable or dated model IDs over latest aliases.</dd>
 
             <dt>Custom Model ID</dt>
-            <dd>Type any model identifier in the text box below the dropdown to override the selection. Useful for newly released models not yet in the list (e.g., <code>gpt-4.5</code>, <code>claude-opus-4</code>, <code>llama3.3:70b</code>). Leave blank to use the dropdown selection.</dd>
+            <dd>Type any model identifier in the text box below the dropdown to override the selection. Useful for newly released models not yet in the list (e.g., <code>gpt-5.5</code>, <code>gpt-5.4-mini</code>, <code>llama3.3:70b</code>). Leave blank to use the dropdown selection.</dd>
 
             <dt>Base URL</dt>
-            <dd>Only shown for <em>Ollama (Local)</em> and <em>Custom OpenAI-Compatible</em>. Default for Ollama: <code>http://localhost:11434</code>.</dd>
+            <dd>Shown for <em>Ollama (Local)</em>, <em>LM Studio</em>, <em>vLLM</em>, <em>LocalAI</em>, and <em>Custom OpenAI-Compatible</em>. Default for Ollama: <code>http://localhost:11434</code>.</dd>
 
             <dt>Test Connection</dt>
             <dd>Always test before running a large batch. A green result confirms the API key is valid and the model is accessible.</dd>
@@ -848,9 +856,9 @@ funding</pre>
               <tr><td>Ollama</td><td>llama3.2</td><td><strong>$0.00</strong></td><td>Free — runs locally</td></tr>
               <tr><td>DeepSeek</td><td>deepseek-chat</td><td>~$0.01</td><td>Very affordable</td></tr>
               <tr><td>Google Gemini</td><td>gemini-2.0-flash</td><td>~$0.02</td><td>Generous free tier</td></tr>
-              <tr><td>OpenAI</td><td>gpt-4o-mini</td><td>~$0.09</td><td>Recommended balance</td></tr>
+              <tr><td>OpenAI</td><td>gpt-5.4-mini</td><td>Check current pricing</td><td>Balanced option</td></tr>
               <tr><td>Anthropic</td><td>claude-3-5-haiku</td><td>~$0.10</td><td>Fast and accurate</td></tr>
-              <tr><td>OpenAI</td><td>gpt-4o</td><td>~$1.50</td><td>Most capable</td></tr>
+              <tr><td>OpenAI</td><td>gpt-5.5</td><td>Check current pricing</td><td>Quality option</td></tr>
               <tr><td>Anthropic</td><td>claude-3-5-sonnet</td><td>~$1.80</td><td>Excellent quality</td></tr>
             </tbody>
           </table>
@@ -859,7 +867,7 @@ funding</pre>
           <ul class="help-list">
             <li><strong>Always enable caching</strong> — prevents re-charging for files already processed.</li>
             <li><strong>Test with 5–10 papers first</strong> — verify your criteria work before running 3,000 papers.</li>
-            <li><strong>Use small models for abstract screening</strong> — <code>gpt-4o-mini</code> or <code>deepseek-chat</code> are sufficient for title/abstract decisions.</li>
+            <li><strong>Use small models for abstract screening</strong> — <code>gpt-5.4-mini</code>, <code>gpt-5.4-nano</code>, or <code>deepseek-chat</code> are usually sufficient for title/abstract decisions.</li>
             <li><strong>Use larger models for extraction only</strong> — if you need high quality extraction, upgrade only for the full-text stage.</li>
             <li><strong>Enable Two-Stage processing</strong> — screens quickly first, extracts only from papers that pass, saving tokens on excluded papers.</li>
             <li><strong>Watch the token counter</strong> — the monitor shows running token usage in real time.</li>
@@ -930,12 +938,12 @@ funding</pre>
 
           <details class="help-faq">
             <summary>Settings are not saved between sessions</summary>
-            <p>Settings are saved to <code>webapp_settings.json</code> in the WebApp folder. Check that the file is not in a read-only location. If the file exists but is empty, delete it and restart the server.</p>
+            <p>Non-secret settings are saved to <code>webapp_settings.json</code> in the WebApp folder. API keys are not saved. Check that the file is not in a read-only location. If the file exists but is empty, delete it and restart the server.</p>
           </details>
 
           <details class="help-faq">
             <summary>Can I use this tool for multiple review projects?</summary>
-            <p>Yes. Each time you start a new project, clear the uploads folder or restart the server (which resets the in-memory session). Your screening criteria and provider settings persist in <code>webapp_settings.json</code>. You can also keep separate copies of the WebApp folder for different projects.</p>
+            <p>Yes. Each time you start a new project, clear the uploads folder or restart the server (which resets the in-memory session). Your screening criteria and non-secret provider settings persist in <code>webapp_settings.json</code>. You can also keep separate copies of the WebApp folder for different projects.</p>
           </details>
 
           <details class="help-faq">
@@ -1023,7 +1031,7 @@ funding</pre>
             <ul class="disclaimer-list">
               <li><strong>You are responsible for all API costs.</strong> This tool sends your paper content to third-party AI providers via your own API key. All charges incurred are billed directly to your account with the respective provider. Monitor your usage dashboard actively.</li>
               <li><strong>Costs can escalate unexpectedly.</strong> Processing a large folder of PDFs or running multiple workers simultaneously can consume significant tokens. Always test with a small batch first. Use caching to prevent accidental re-processing.</li>
-              <li><strong>Your content is sent to third parties.</strong> When using cloud AI providers (OpenAI, Anthropic, Google, etc.), the text extracted from your PDFs and reference files is transmitted to and processed on their servers. Review the data-processing and privacy policies of your chosen provider before uploading sensitive, confidential, or unpublished research material.</li>
+              <li><strong>Your content is sent to third parties.</strong> When using cloud AI providers (OpenAI, Anthropic, Google, OpenRouter, etc.), the text extracted from your PDFs and reference files is transmitted to and processed on their servers. Router providers such as OpenRouter add another third party between this tool and the final model provider. Review the data-processing and privacy policies of your chosen provider before uploading sensitive, confidential, or unpublished research material.</li>
               <li><strong>Ollama is the only fully private option.</strong> If you require that no paper content leaves your machine, use Ollama with a locally downloaded model. No data is transmitted externally.</li>
               <li><strong>Rate limits and throttling.</strong> Exceeding your API provider's rate limits will cause processing errors. This is not a bug in the tool — it is a constraint of the external API. Increase Rate Delay or reduce Max Workers if you encounter rate-limit errors.</li>
               <li><strong>No warranties on uptime or availability.</strong> This tool depends on third-party AI APIs. Outages, model deprecations, or pricing changes by providers are outside this tool's control.</li>

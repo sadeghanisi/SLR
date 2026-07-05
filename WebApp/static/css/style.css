@@ -974,6 +974,23 @@ body {
 .provider-info {
   margin-bottom: var(--sp-4);
 }
+.privacy-label {
+  display: inline-block;
+  padding: 2px var(--sp-2);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: var(--sp-2);
+}
+.privacy-local_only { background: var(--accept-bg); color: var(--accept); }
+.privacy-direct_cloud { background: var(--error-bg); color: var(--ink-soft); }
+.privacy-router_third_party { background: var(--flag-bg); color: var(--flag); }
+.privacy-custom_endpoint { background: var(--navy-soft); color: var(--navy); }
+.privacy-note {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  margin-bottom: var(--sp-2);
+}
 .info-muted {
   color: var(--ink-muted);
   font-size: 0.88rem;
