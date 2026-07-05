@@ -27,6 +27,8 @@ config.ini
 .slr_cache/
 output/
 test_output/
+benchmarks/results/*
+!benchmarks/results/.gitkeep
 *.log
 
 # ── OS files ──────────────────────────────────────────────────

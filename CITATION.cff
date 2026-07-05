@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: SLR Assistant
+message: If you use this software, please cite it.
+type: software
+authors:
+  - family-names: Anisi
+    given-names: Mohammad Sadegh
+    orcid: https://orcid.org/0009-0007-7249-2891
+repository-code: https://github.com/sadeghanisi/SLR
+license: MIT
+version: 3.4.0-rc.1
+date-released: 2026-07-05
+abstract: Local-first, AI-assisted tool for systematic and scoping review workflows.
+keywords:
+  - systematic literature review
+  - scoping review
+  - AI-assisted screening
+  - LLM
+  - research software
+  - PRISMA-aligned workflow
+  - local-first software
