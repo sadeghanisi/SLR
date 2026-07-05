@@ -202,3 +202,58 @@ def test_pdf_processing_background_exception_is_exposed(isolated_webapp, monkeyp
     results = client.get("/api/processing/results").get_json()
     assert results["error"] == "background failure"
     assert results["screening"] == []
+
+
+class PartialFailureAutomation(FakeProcessingAutomation):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.stats["total_files"] = 2
+
+    def process_pdfs(self):
+        self.screening_results = [
+            ScreeningResult("server-a.pdf", "Likely Include", "Meets criteria", "", processing_time=0.1),
+            ScreeningResult("server-b.pdf", "Error", "LLM call failed after retries", "Screening failed", processing_time=0.2),
+        ]
+        self.extraction_results = [
+            ExtractionResult("server-a.pdf", {"title": "Included Paper"}, processing_time=0.3),
+        ]
+        for path in (
+            self.screening_csv,
+            self.screening_excel,
+            self.extraction_csv,
+            self.extraction_excel,
+            self.summary_report,
+            self.audit_ledger,
+        ):
+            path.write_text("fake report", encoding="utf-8")
+        return {"screened_count": 2, "extracted_count": 1}
+
+
+def test_pdf_processing_counters_survive_one_failed_pdf_and_one_success(isolated_webapp, monkeypatch):
+    pdf_dir = _make_pdf_folder(isolated_webapp, names=("server-a.pdf", "server-b.pdf"))
+    isolated_webapp.session["pdf_display_names"] = {
+        "server-a.pdf": "Included Paper.pdf",
+        "server-b.pdf": "Failed Paper.pdf",
+    }
+    monkeypatch.setattr(isolated_webapp, "SystematicReviewAutomation", PartialFailureAutomation)
+    client = isolated_webapp.app.test_client()
+
+    response = client.post("/api/processing/start", json={"pdf_folder": str(pdf_dir)})
+    assert response.status_code == 200
+    isolated_webapp.session["processing_thread"].join(timeout=2)
+
+    progress = client.get("/api/progress").get_json()
+    assert progress["active"] is False
+    assert progress["counters"] == {
+        "total_files": 2,
+        "processed_files": 2,
+        "included": 1,
+        "excluded": 0,
+        "flagged": 0,
+        "failed": 1,
+    }
+
+    results = client.get("/api/processing/results").get_json()
+    assert [r["decision"] for r in results["screening"]] == ["Likely Include", "Error"]
+    assert results["screening"][1]["error"] == "LLM call failed after retries"
+    assert results["reports"]["screening_excel"]["exists"] is True

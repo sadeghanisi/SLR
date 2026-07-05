@@ -12,7 +12,10 @@ import copy
 import json
 import logging
 import os
+import random
 import re
+import threading
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,6 +23,129 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Shared rate limiting and retry helpers
+# ---------------------------------------------------------------------------
+
+RETRYABLE_ERROR_CATEGORIES = {
+    "rate_limit",
+    "timeout",
+    "server_error",
+    "connection_error",
+    "temporary_network",
+    "unknown",
+}
+
+
+class LLMCallError(RuntimeError):
+    """Clear final error for provider calls after retry classification."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str,
+        retry_count: int,
+        original_error: Exception,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(message)
+        self.category = category
+        self.retry_count = retry_count
+        self.original_error = original_error
+        self.metadata = metadata or {}
+
+
+class ProviderRateLimiter:
+    """Thread-safe provider/profile limiter with request spacing and concurrency."""
+
+    def __init__(
+        self,
+        min_interval: float = 0.75,
+        max_concurrency: int = 1,
+        *,
+        clock=None,
+        sleeper=None,
+    ):
+        self.min_interval = max(0.0, float(min_interval or 0.0))
+        self.max_concurrency = max(1, int(max_concurrency or 1))
+        self._clock = clock or time.monotonic
+        self._sleeper = sleeper or time.sleep
+        self._condition = threading.Condition()
+        self._active = 0
+        self._last_start = 0.0
+
+    def configure(self, *, min_interval: Optional[float] = None, max_concurrency: Optional[int] = None) -> None:
+        with self._condition:
+            if min_interval is not None:
+                self.min_interval = max(0.0, float(min_interval))
+            if max_concurrency is not None:
+                self.max_concurrency = max(1, int(max_concurrency))
+            self._condition.notify_all()
+
+    def _enter(self) -> float:
+        with self._condition:
+            while self._active >= self.max_concurrency:
+                self._condition.wait()
+            self._active += 1
+
+            now = self._clock()
+            earliest = self._last_start + self.min_interval
+            wait_seconds = max(0.0, earliest - now)
+            self._last_start = now + wait_seconds
+
+        if wait_seconds > 0:
+            self._sleeper(wait_seconds)
+        return wait_seconds
+
+    def _exit(self) -> None:
+        with self._condition:
+            self._active = max(0, self._active - 1)
+            self._condition.notify_all()
+
+    def run(self, operation):
+        wait_seconds = self._enter()
+        try:
+            return operation(), wait_seconds
+        except Exception as exc:
+            try:
+                setattr(exc, "rate_limit_wait_seconds", wait_seconds)
+            except Exception:
+                pass
+            raise
+        finally:
+            self._exit()
+
+
+_RATE_LIMITERS: Dict[str, ProviderRateLimiter] = {}
+_RATE_LIMITERS_LOCK = threading.Lock()
+
+
+def reset_rate_limiters_for_tests() -> None:
+    """Reset shared limiter state for deterministic tests."""
+    with _RATE_LIMITERS_LOCK:
+        _RATE_LIMITERS.clear()
+
+
+def get_provider_rate_limiter(
+    key: str,
+    *,
+    min_interval: float,
+    max_concurrency: int,
+) -> ProviderRateLimiter:
+    with _RATE_LIMITERS_LOCK:
+        limiter = _RATE_LIMITERS.get(key)
+        if limiter is None:
+            limiter = ProviderRateLimiter(
+                min_interval=min_interval,
+                max_concurrency=max_concurrency,
+            )
+            _RATE_LIMITERS[key] = limiter
+        else:
+            limiter.configure(min_interval=min_interval, max_concurrency=max_concurrency)
+        return limiter
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +436,73 @@ def _normalize_proxy_env_urls() -> None:
         if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", value):
             continue
         os.environ[key] = f"http://{value}"
+
+
+def default_rate_limit_for_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Conservative provider/profile defaults; callers may override them."""
+    privacy_level = profile.get("privacy_level")
+    if privacy_level == "local_only":
+        return {"min_interval": 0.1, "max_concurrency": 4}
+    if privacy_level == "router_third_party":
+        return {"min_interval": 1.0, "max_concurrency": 1}
+    if privacy_level == "custom_endpoint":
+        return {"min_interval": 0.75, "max_concurrency": 2}
+    return {"min_interval": 0.75, "max_concurrency": 1}
+
+
+def _status_code_from_error(error: Exception) -> Optional[int]:
+    for attr in ("status_code", "status"):
+        value = getattr(error, attr, None)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                pass
+
+    response = getattr(error, "response", None)
+    value = getattr(response, "status_code", None)
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def categorize_llm_error(error: Exception) -> str:
+    if isinstance(error, NotImplementedError):
+        return "unsupported_feature"
+
+    status_code = _status_code_from_error(error)
+    message = str(error).lower()
+
+    if status_code == 429 or "429" in message or "rate limit" in message or "too many requests" in message:
+        return "rate_limit"
+    if isinstance(error, (TimeoutError, requests.exceptions.Timeout)) or "timeout" in message or "timed out" in message:
+        return "timeout"
+    if isinstance(error, requests.exceptions.ConnectionError):
+        return "connection_error"
+    if status_code in {500, 502, 503, 504}:
+        return "server_error"
+    if any(term in message for term in ("connection reset", "temporarily unavailable", "temporary failure")):
+        return "temporary_network"
+    if status_code in {401, 403} or any(
+        term in message
+        for term in ("invalid api key", "unauthorized", "authentication", "permission denied", "forbidden")
+    ):
+        return "auth_error"
+    if status_code == 404 or any(
+        term in message
+        for term in ("unsupported model", "model not found", "model_not_found", "unknown model")
+    ):
+        return "unsupported_model"
+    if status_code == 400 or any(term in message for term in ("bad request", "invalid request", "malformed")):
+        return "malformed_request"
+    return "unknown"
+
+
+def is_retryable_llm_error(error: Exception) -> bool:
+    return categorize_llm_error(error) in RETRYABLE_ERROR_CATEGORIES
 
 
 def classify_model_stability(model_id: str) -> str:
@@ -786,6 +979,7 @@ class LLMManager:
     }
 
     def __init__(self, provider_name: str, api_key: str, model: str, **kwargs):
+        rate_limit_config = kwargs.pop("rate_limit_config", {}) or {}
         if provider_name not in PROVIDER_CATALOG:
             supported = ", ".join(PROVIDER_CATALOG)
             raise ValueError(
@@ -820,11 +1014,136 @@ class LLMManager:
         else:
             raise ValueError(f"Unsupported adapter type for {provider_name}: {adapter}")
 
+        defaults = default_rate_limit_for_profile(self.profile)
+        defaults.update({k: v for k, v in rate_limit_config.items() if v is not None})
+        self.rate_limit_min_interval = float(defaults.get("min_interval", 0.75))
+        self.rate_limit_max_concurrency = int(defaults.get("max_concurrency", 1))
+        self.rate_limit_key = self._build_rate_limit_key()
+        self.rate_limiter = get_provider_rate_limiter(
+            self.rate_limit_key,
+            min_interval=self.rate_limit_min_interval,
+            max_concurrency=self.rate_limit_max_concurrency,
+        )
+        self.last_call_metadata: Dict[str, Any] = {}
+        self._thread_local = threading.local()
+
+    def _build_rate_limit_key(self) -> str:
+        profile_id = self.profile.get("id") or self.provider_name.lower().replace(" ", "_")
+        base_url = getattr(self.provider, "base_url", None) or self.profile.get("base_url") or ""
+        return f"{profile_id}|{base_url}".lower()
+
+    @staticmethod
+    def _pop_retry_options(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "max_attempts": max(1, int(kwargs.pop("retry_max_attempts", 3) or 1)),
+            "retry_delay": max(0.0, float(kwargs.pop("retry_delay", 0.5) or 0.0)),
+            "retry_jitter": max(0.0, float(kwargs.pop("retry_jitter", 0.1) or 0.0)),
+        }
+
+    @staticmethod
+    def _backoff_delay(category: str, retry_delay: float, retry_jitter: float, retry_count: int) -> float:
+        base = retry_delay
+        delay = base * (2 ** max(0, retry_count - 1))
+        if delay > 0 and retry_jitter > 0:
+            delay += random.uniform(0.0, delay * retry_jitter)
+        return delay
+
+    def _set_last_call_metadata(self, metadata: Dict[str, Any]) -> None:
+        self.last_call_metadata = dict(metadata)
+        self._thread_local.last_call_metadata = dict(metadata)
+
+    def _execute_with_retry(
+        self,
+        operation,
+        *,
+        max_attempts: int,
+        retry_delay: float,
+        retry_jitter: float,
+    ):
+        total_rate_limit_wait = 0.0
+        total_backoff_wait = 0.0
+        retry_count = 0
+        last_category = None
+
+        for attempt_index in range(max_attempts):
+            try:
+                result, wait_seconds = self.rate_limiter.run(operation)
+                total_rate_limit_wait += wait_seconds
+                metadata = {
+                    "provider": self.provider_name,
+                    "provider_profile": self.profile.get("id"),
+                    "model": self.provider.model,
+                    "rate_limit_key": self.rate_limit_key,
+                    "rate_limit_wait_seconds": round(total_rate_limit_wait, 6),
+                    "backoff_wait_seconds": round(total_backoff_wait, 6),
+                    "retry_count": retry_count,
+                    "attempt_count": attempt_index + 1,
+                    "final_status": "success",
+                    "error_category": last_category,
+                }
+                self._set_last_call_metadata(metadata)
+                return result
+            except Exception as exc:
+                metadata = getattr(exc, "metadata", None)
+                if isinstance(metadata, dict):
+                    total_rate_limit_wait += float(metadata.get("rate_limit_wait_seconds", 0.0) or 0.0)
+                elif hasattr(exc, "rate_limit_wait_seconds"):
+                    total_rate_limit_wait += float(getattr(exc, "rate_limit_wait_seconds", 0.0) or 0.0)
+
+                category = categorize_llm_error(exc)
+                last_category = category
+                should_retry = category in RETRYABLE_ERROR_CATEGORIES and attempt_index < max_attempts - 1
+                if not should_retry:
+                    final_status = "failed_retry_exhausted" if category in RETRYABLE_ERROR_CATEGORIES else "failed_permanent"
+                    metadata = {
+                        "provider": self.provider_name,
+                        "provider_profile": self.profile.get("id"),
+                        "model": self.provider.model,
+                        "rate_limit_key": self.rate_limit_key,
+                        "rate_limit_wait_seconds": round(total_rate_limit_wait, 6),
+                        "backoff_wait_seconds": round(total_backoff_wait, 6),
+                        "retry_count": retry_count,
+                        "attempt_count": attempt_index + 1,
+                        "final_status": final_status,
+                        "error_category": category,
+                    }
+                    self._set_last_call_metadata(metadata)
+                    if final_status == "failed_retry_exhausted":
+                        message = (
+                            f"LLM call failed after {attempt_index + 1} attempts "
+                            f"({category}): {exc}"
+                        )
+                    else:
+                        message = f"LLM call failed without retry ({category}): {exc}"
+                    raise LLMCallError(
+                        message,
+                        category=category,
+                        retry_count=retry_count,
+                        original_error=exc,
+                        metadata=self.get_last_call_metadata(),
+                    ) from exc
+
+                retry_count += 1
+                delay = self._backoff_delay(category, retry_delay, retry_jitter, retry_count)
+                total_backoff_wait += delay
+                if delay > 0:
+                    time.sleep(delay)
+
+        raise RuntimeError("LLM retry loop exited unexpectedly")
+
+    def get_last_call_metadata(self) -> Dict[str, Any]:
+        local_metadata = getattr(self._thread_local, "last_call_metadata", None)
+        return dict(local_metadata or self.last_call_metadata)
+
     def chat_completion_with_tokens(self, messages, **kwargs) -> Tuple[str, int]:
-        return self.provider.chat_completion_with_tokens(messages, **kwargs)
+        retry_options = self._pop_retry_options(kwargs)
+        return self._execute_with_retry(
+            lambda: self.provider.chat_completion_with_tokens(messages, **kwargs),
+            **retry_options,
+        )
 
     def chat_completion(self, messages, **kwargs) -> str:
-        text, _ = self.provider.chat_completion_with_tokens(messages, **kwargs)
+        text, _ = self.chat_completion_with_tokens(messages, **kwargs)
         return text
 
     def chat_completion_structured(
@@ -833,6 +1152,7 @@ class LLMManager:
         response_model: type,
         temperature: float = 0.05,
         max_tokens: int = 4000,
+        **kwargs,
     ) -> Tuple[Any, int]:
         """
         Best-effort schema-enforced output via instructor.
@@ -851,7 +1171,9 @@ class LLMManager:
         pname = self.provider_name
         adapter = self.profile["adapter"]
 
-        try:
+        retry_options = self._pop_retry_options(kwargs)
+
+        def operation():
             if adapter in ("native_openai", "openai_compatible", "native_ollama"):
                 import openai
                 raw_client = openai.OpenAI(
@@ -865,7 +1187,7 @@ class LLMManager:
                     response_model=response_model,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    max_retries=3,
+                    max_retries=1,
                 )
                 return resp, 0
 
@@ -883,7 +1205,7 @@ class LLMManager:
                     system=system_content,
                     messages=user_msgs,
                     response_model=response_model,
-                    max_retries=3,
+                    max_retries=1,
                 )
                 return resp, 0
 
@@ -891,8 +1213,11 @@ class LLMManager:
                 f"Structured output not natively supported for {pname}. "
                 "Falling back to JSON parse."
             )
+
+        try:
+            return self._execute_with_retry(operation, **retry_options)
         except instructor.exceptions.InstructorRetryException as exc:
-            raise RuntimeError(f"instructor failed after 3 retries: {exc}") from exc
+            raise RuntimeError(f"instructor structured output failed: {exc}") from exc
 
     @classmethod
     def get_supported_providers(cls) -> List[str]:

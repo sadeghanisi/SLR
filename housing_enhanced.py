@@ -223,6 +223,10 @@ class SystematicReviewAutomation:
         self.max_text_chars             = adv.get('max_text_chars', 100000)
         self.max_retries                = adv.get('max_retries', 3)
         self.retry_delay_base           = adv.get('retry_delay', 0.5)
+        self.retry_jitter               = adv.get('retry_jitter', 0.1)
+        self.request_timeout            = adv.get('request_timeout', llm_kwargs.get('timeout', 90))
+        self.rate_limit_min_interval    = adv.get('rate_limit_min_interval', rate_limit_delay)
+        self.rate_limit_max_concurrency = adv.get('rate_limit_max_concurrency')
         self.intermediate_save_interval = adv.get('intermediate_save_interval', 5)
         self.enable_smart_truncation    = adv.get('enable_smart_truncation', True)
         self.preserve_sections          = adv.get('preserve_sections', [
@@ -279,6 +283,7 @@ class SystematicReviewAutomation:
         self._paper_texts:       Dict[str, str]         = {}  # legacy compatibility; not populated
         self._paper_text_metadata: Dict[str, Dict[str, Any]] = {}
         self._last_text_extraction_metadata: Dict[str, Dict[str, Any]] = {}
+        self._last_llm_call_metadata: Dict[str, Any] = {}
 
         # Thread-safe stats
         self._lock = threading.Lock()
@@ -301,11 +306,17 @@ class SystematicReviewAutomation:
 
     def _init_llm(self) -> LLMManager:
         try:
+            llm_options = dict(self.llm_kwargs)
+            llm_options.setdefault('timeout', self.request_timeout)
+            llm_options['rate_limit_config'] = {
+                'min_interval': self.rate_limit_min_interval,
+                'max_concurrency': self.rate_limit_max_concurrency,
+            }
             mgr = LLMManager(
                 provider_name=self.llm_provider,
                 api_key=self.api_key,
                 model=self.llm_model,
-                **self.llm_kwargs,
+                **llm_options,
             )
             self.logger.info(f"LLM ready: {self.llm_provider} / {self.llm_model}")
             return mgr
@@ -401,6 +412,10 @@ class SystematicReviewAutomation:
         status: str = "ok",
         parse_status: str = "ok",
         retry_count: int = 0,
+        final_status: str = None,
+        error_category: str = None,
+        rate_limit_wait_seconds: float = 0.0,
+        backoff_wait_seconds: float = 0.0,
         error: str = None,
     ):
         provider_profile = cache_context.get('provider_profile') or {}
@@ -425,9 +440,14 @@ class SystematicReviewAutomation:
             'api_tokens_used': tokens,
             'decision': decision,
             'status': status,
+            'final_status': final_status or status,
             'parse_status': parse_status,
             'retry_count': retry_count,
+            'rate_limit_wait_seconds': round(float(rate_limit_wait_seconds or 0.0), 6),
+            'backoff_wait_seconds': round(float(backoff_wait_seconds or 0.0), 6),
         }
+        if error_category:
+            event['error_category'] = error_category
         if text_cache_metadata:
             event['text_cache'] = text_cache_metadata
         if error:
@@ -621,25 +641,50 @@ class SystematicReviewAutomation:
 
     # ── LLM call with retry ──────────────────────────────────────────────────
 
+    def _sync_llm_call_metadata(self) -> Dict[str, Any]:
+        getter = getattr(self.llm_manager, "get_last_call_metadata", None)
+        if callable(getter):
+            self._last_llm_call_metadata = getter()
+        return dict(self._last_llm_call_metadata)
+
+    def _audit_llm_metadata(self) -> Dict[str, Any]:
+        metadata = dict(self._last_llm_call_metadata or {})
+        return {
+            'retry_count': int(metadata.get('retry_count', 0) or 0),
+            'final_status': metadata.get('final_status'),
+            'error_category': metadata.get('error_category'),
+            'rate_limit_wait_seconds': float(metadata.get('rate_limit_wait_seconds', 0.0) or 0.0),
+            'backoff_wait_seconds': float(metadata.get('backoff_wait_seconds', 0.0) or 0.0),
+        }
+
     def _llm_call(self, messages: List[Dict], **kwargs) -> Tuple[str, int]:
         """Returns (response_text, tokens_used)."""
-        for attempt in range(self.max_retries):
-            if self.stop_event.is_set():
-                raise InterruptedError("Stopped by user")
-            try:
-                return self.llm_manager.chat_completion_with_tokens(messages, **kwargs)
-            except InterruptedError:
-                raise
-            except Exception as e:
-                err = str(e).lower()
-                is_rate = any(x in err for x in ("rate limit", "too many requests", "429"))
-                is_temp = any(x in err for x in ("timeout", "server error", "502", "503", "504"))
-                if attempt == self.max_retries - 1:
-                    raise
-                wait = (2 ** attempt) * (self.rate_limit_delay if is_rate else self.retry_delay_base)
-                self.logger.warning(f"Retry {attempt+1}/{self.max_retries} in {wait:.1f}s: {e}")
-                time.sleep(wait)
-        raise RuntimeError("Max retries exceeded")
+        if self.stop_event.is_set():
+            raise InterruptedError("Stopped by user")
+        try:
+            return self.llm_manager.chat_completion_with_tokens(
+                messages,
+                retry_max_attempts=self.max_retries,
+                retry_delay=self.retry_delay_base,
+                retry_jitter=self.retry_jitter,
+                **kwargs,
+            )
+        finally:
+            self._sync_llm_call_metadata()
+
+    def _llm_structured_call(self, messages: List[Dict], schema: type) -> Tuple[Any, int]:
+        if self.stop_event.is_set():
+            raise InterruptedError("Stopped by user")
+        try:
+            return self.llm_manager.chat_completion_structured(
+                messages,
+                schema,
+                retry_max_attempts=self.max_retries,
+                retry_delay=self.retry_delay_base,
+                retry_jitter=self.retry_jitter,
+            )
+        finally:
+            self._sync_llm_call_metadata()
 
     # ── PDF extraction ───────────────────────────────────────────────────────
 
@@ -833,6 +878,7 @@ class SystematicReviewAutomation:
                 {"role": "user",   "content": self.screening_prompt.format(text=snippet)},
             ]
             raw, tokens = self._llm_call(messages, temperature=0.05, max_tokens=1500)
+            llm_metadata = self._audit_llm_metadata()
             data = _parse_json_response(raw)
 
             result = ScreeningResult(
@@ -866,6 +912,7 @@ class SystematicReviewAutomation:
                 cache_hit=False,
                 tokens=tokens,
                 decision=result.decision,
+                **llm_metadata,
             )
             return result
 
@@ -881,6 +928,7 @@ class SystematicReviewAutomation:
                 cache_hit=False,
                 status='error',
                 parse_status='error',
+                **self._audit_llm_metadata(),
                 error=str(e),
             )
             return ScreeningResult(
@@ -954,9 +1002,7 @@ class SystematicReviewAutomation:
             data, tokens = None, 0
             if schema is not None:
                 try:
-                    structured, tokens = self.llm_manager.chat_completion_structured(
-                        messages, schema
-                    )
+                    structured, tokens = self._llm_structured_call(messages, schema)
                     if structured is not None:
                         data = structured.model_dump()
                 except Exception as se:
@@ -968,6 +1014,7 @@ class SystematicReviewAutomation:
             if data is None:
                 raw, tokens = self._llm_call(messages, temperature=0.05, max_tokens=4000)
                 data = _parse_json_response(raw)
+            llm_metadata = self._audit_llm_metadata()
 
             result = ExtractionResult(
                 filename=filename,
@@ -989,6 +1036,7 @@ class SystematicReviewAutomation:
                 cache_context=cache_context,
                 cache_hit=False,
                 tokens=tokens,
+                **llm_metadata,
             )
             return result
 
@@ -1003,6 +1051,7 @@ class SystematicReviewAutomation:
                 cache_hit=False,
                 status='error',
                 parse_status='error',
+                **self._audit_llm_metadata(),
                 error=str(e),
             )
             return ExtractionResult(
@@ -1050,7 +1099,6 @@ class SystematicReviewAutomation:
         if screening.decision == ScreeningDecision.LIKELY_INCLUDE.value and not self.stop_event.is_set():
             extraction = self.extract_data(text, pdf_file.name)
 
-        time.sleep(self.rate_limit_delay)
         return screening, extraction
 
     # ── Batch runner ─────────────────────────────────────────────────────────
