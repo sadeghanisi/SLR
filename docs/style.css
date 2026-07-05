@@ -1,5 +1,5 @@
 /* ================================================================
-   SLR Automation Tool — RETRO / CRT Theme
+   SLR Assistant — RETRO / CRT Theme
    Aesthetic: phosphor green terminal, neon accents, scanlines,
    pixel fonts, ASCII borders, CRT flicker
    ================================================================ */
@@ -72,9 +72,9 @@
   --border-glow: var(--green-dim);
 
   /* Typography */
-  --font:        'VT323', 'Courier New', monospace;
-  --font-pixel:  'Press Start 2P', 'VT323', monospace;
-  --font-mono:   'Space Mono', 'Consolas', monospace;
+  --font:        'Cascadia Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+  --font-pixel:  'Cascadia Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+  --font-mono:   'Cascadia Mono', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
 
   /* Spacing */
   --section-y:   5rem;
@@ -126,8 +126,8 @@ body {
   z-index: 9999;
   background: repeating-linear-gradient(
     0deg,
-    rgba(0, 0, 0, 0.12) 0px,
-    rgba(0, 0, 0, 0.12) 1px,
+    rgba(0, 0, 0, 0.07) 0px,
+    rgba(0, 0, 0, 0.07) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -144,9 +144,9 @@ body {
 }
 @keyframes flicker {
   0%   { opacity: 0; }
-  5%   { opacity: 0.02; background: rgba(57,255,20,0.01); }
+  5%   { opacity: 0.01; background: rgba(57,255,20,0.005); }
   10%  { opacity: 0; }
-  15%  { opacity: 0.015; }
+  15%  { opacity: 0.008; }
   100% { opacity: 0; }
 }
 
@@ -601,6 +601,35 @@ h3 { font-size: 1.4rem; }
 }
 
 /* ================================================================
+   INTRO
+   ================================================================ */
+.intro {
+  padding: var(--section-y) 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.intro-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+.intro-card {
+  border: 1px solid var(--border);
+  background: var(--bg-card2);
+  padding: 1.5rem;
+  min-height: 100%;
+}
+.intro-card h3 {
+  color: var(--cyan);
+  font-size: 1.15rem;
+  margin-bottom: 0.5rem;
+}
+.intro-card p {
+  color: var(--white-dim);
+  font-size: 1rem;
+}
+
+/* ================================================================
    FEATURES
    ================================================================ */
 .features {
@@ -888,6 +917,7 @@ h3 { font-size: 1.4rem; }
 .code-block pre {
   padding: 1.25rem;
   overflow-x: auto;
+  max-width: 100%;
 }
 .code-block code {
   font-family: var(--font);
@@ -1115,6 +1145,9 @@ h3 { font-size: 1.4rem; }
   .feature-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .intro-grid {
+    grid-template-columns: 1fr;
+  }
   .stats-inner {
     gap: 2rem;
   }
@@ -1149,6 +1182,11 @@ h3 { font-size: 1.4rem; }
   }
   .feature-grid {
     grid-template-columns: 1fr;
+  }
+  .terminal-body,
+  .code-block pre,
+  .provider-table-wrap {
+    max-width: calc(100vw - 3rem);
   }
   .stats-inner {
     gap: 1.5rem;
@@ -1200,6 +1238,8 @@ h3 { font-size: 1.4rem; }
   *,
   *::before,
   *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }

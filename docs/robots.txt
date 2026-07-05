@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://YOUR_USERNAME.github.io/slr-automation-tool/sitemap.xml
+Sitemap: https://sadeghanisi.github.io/SLR/sitemap.xml
+# LLM overview: https://sadeghanisi.github.io/SLR/llms.txt

@@ -1,0 +1,29 @@
+# SLR Assistant
+
+> Local-first, open-source, AI-assisted software for systematic and scoping literature review workflows.
+
+Short description:
+SLR Assistant helps researchers import references, deduplicate records, screen titles and abstracts, process full-text PDFs, extract structured data, and export auditable review outputs. It supports a desktop GUI and a local browser WebApp. Human verification is required.
+
+## Key Resources
+
+* Landing page: https://sadeghanisi.github.io/SLR/
+* GitHub repository: https://github.com/sadeghanisi/SLR
+* Complete User Guide: https://github.com/sadeghanisi/SLR/blob/main/COMPLETE_USER_GUIDE.md
+* README: https://github.com/sadeghanisi/SLR/blob/main/README.md
+* License: https://github.com/sadeghanisi/SLR/blob/main/LICENSE
+* Issues: https://github.com/sadeghanisi/SLR/issues
+
+## Important Context
+
+* Local-first single-user research tool.
+* The WebApp runs on localhost and is not intended for public multi-user deployment.
+* Cloud LLM providers receive submitted paper text through their APIs.
+* Router providers such as OpenRouter add an additional third party before the final model provider.
+* Ollama and other local model endpoints are the most privacy-preserving option.
+* The tool supports PRISMA-aligned workflows, but does not guarantee PRISMA compliance.
+* Researchers remain responsible for final inclusion/exclusion decisions, extracted data verification, and methodological reporting.
+
+## Keywords
+
+systematic literature review, scoping review, AI-assisted screening, LLM, research software, PRISMA-aligned workflow, local-first software, open-source SLR tool

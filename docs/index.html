@@ -3,25 +3,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SLR Assistant — AI-Assisted Systematic and Scoping Reviews</title>
-  <meta name="description" content="Free, open-source AI-assisted systematic/scoping review workflow. Supports native providers, OpenAI-compatible profiles, and local models. Built by Mo Anisi for students, researchers &amp; professors." />
-  <meta name="keywords" content="systematic literature review, SLR, automation, AI, LLM, research tool, open source, PRISMA, Mo Anisi" />
+  <title>SLR Assistant — Local-First AI Tool for Systematic and Scoping Reviews</title>
+  <meta name="description" content="Local-first, open-source AI-assisted review tool for screening, extraction, desktop GUI, and local WebApp workflows." />
+  <link rel="canonical" href="https://sadeghanisi.github.io/SLR/" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="SLR Assistant by Mo Anisi" />
-  <meta property="og:description" content="AI-assisted systematic/scoping review workflow with native providers, OpenAI-compatible profiles, local models, reference ingestion, screening &amp; extraction. By Mo Anisi." />
+  <meta property="og:title" content="SLR Assistant — Local-First AI Tool for Systematic and Scoping Reviews" />
+  <meta property="og:description" content="Open-source AI-assisted workflow for systematic and scoping reviews: reference ingestion, screening, extraction, desktop GUI, and local WebApp." />
   <meta property="og:type" content="website" />
-  <meta property="og:image" content="https://slr-automation.github.io/og-preview.png" />
+  <meta property="og:url" content="https://sadeghanisi.github.io/SLR/" />
+  <meta property="og:image" content="https://sadeghanisi.github.io/SLR/og-preview.png" />
+  <meta property="og:site_name" content="SLR Assistant" />
+
+  <!-- Twitter / X -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="SLR Assistant — Local-First AI Tool for Reviews" />
+  <meta name="twitter:description" content="Open-source AI-assisted systematic/scoping review workflow with desktop GUI, local WebApp, screening, extraction, and auditability." />
+  <meta name="twitter:image" content="https://sadeghanisi.github.io/SLR/og-preview.png" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://sadeghanisi.github.io/SLR/#software",
+        "name": "SLR Assistant",
+        "alternateName": "Universal SLR Automation Tool",
+        "applicationCategory": "Research software",
+        "operatingSystem": "Windows, macOS, Linux",
+        "softwareVersion": "3.4.0-beta.1",
+        "license": "https://github.com/sadeghanisi/SLR/blob/main/LICENSE",
+        "author": { "@id": "https://sadeghanisi.github.io/SLR/#author" },
+        "codeRepository": "https://github.com/sadeghanisi/SLR",
+        "url": "https://sadeghanisi.github.io/SLR/",
+        "description": "Local-first, open-source, AI-assisted software for systematic and scoping review workflows with reference ingestion, screening, PDF processing, structured extraction, and auditability.",
+        "keywords": "systematic literature review, scoping review, AI-assisted screening, LLM, PRISMA-aligned workflow, research software",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock",
+          "description": "Free and open-source software under the MIT License. Cloud LLM providers may charge separately for API usage."
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://sadeghanisi.github.io/SLR/#website",
+        "name": "SLR Assistant",
+        "url": "https://sadeghanisi.github.io/SLR/",
+        "description": "Landing page for SLR Assistant, a local-first AI-assisted review workflow for systematic and scoping reviews."
+      },
+      {
+        "@type": "Person",
+        "@id": "https://sadeghanisi.github.io/SLR/#author",
+        "name": "Mo Anisi",
+        "url": "https://www.linkedin.com/in/manisi/"
+      }
+    ]
+  }
+  </script>
 
   <!-- Favicon -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' fill='%230a0a0a'/%3E%3Ctext x='48' y='58' text-anchor='middle' font-family='monospace' font-size='24' fill='%2339ff14'%3ESLR%3C/text%3E%3C/svg%3E" />
 
   <link rel="stylesheet" href="style.css" />
-
-  <!-- Google Fonts — retro monospace + pixel -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Space+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
 </head>
 <body>
 <a href="#main" class="skip-link">Skip to main content</a>
@@ -40,10 +86,10 @@
     <a href="#" class="logo">
       <span class="logo-icon">&gt;_</span> SLR_AUTO
     </a>
-    <button class="nav-toggle" aria-label="Toggle navigation" id="navToggle">
+    <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primaryNav" id="navToggle">
       <span></span><span></span><span></span>
     </button>
-    <ul class="nav-links">
+    <ul class="nav-links" id="primaryNav">
       <li><a href="#features">[FEATURES]</a></li>
       <li><a href="#providers">[PROVIDERS]</a></li>
       <li><a href="#workflow">[WORKFLOW]</a></li>
@@ -54,6 +100,8 @@
     </ul>
   </div>
 </nav>
+
+<main id="main">
 
 <!-- ========================================================== -->
 <!--  HERO                                                       -->
@@ -69,7 +117,8 @@
         <span class="typed-prefix">&gt;</span> Process PDFs. Extract structured data.<br>
         <span class="typed-prefix">&gt;</span> Native providers + OpenAI-compatible profiles.<br>
         <span class="typed-prefix">&gt;</span> Desktop GUI &amp; browser Web App included.<br>
-        <span class="typed-prefix">&gt;</span> One tool. Zero hassle.<span class="cursor">█</span>
+        <span class="typed-prefix">&gt;</span> Config-aware cache + JSONL audit ledger.<br>
+        <span class="typed-prefix">&gt;</span> One local-first workflow. Human verification stays in control.<span class="cursor">█</span>
       </p>
       <div class="hero-actions">
         <a href="#download" class="btn btn-primary btn-lg">&gt; DOWNLOAD_FREE</a>
@@ -90,17 +139,42 @@
           <div class="term-line success">[  OK  ] Provider catalog loaded</div>
           <div class="term-line success">[  OK  ] Reference ingestion ready</div>
           <div class="term-line success">[  OK  ] PDF processing engine loaded</div>
-          <div class="term-line"><span class="term-prompt">&gt;</span> Processing 247 PDFs...</div>
+          <div class="term-line"><span class="term-prompt">&gt;</span> Processing PDF batch...</div>
           <div class="term-line"><span class="progress-bar"><span class="progress-fill"></span></span> <span class="blink-cursor">100%</span></div>
-          <div class="term-line success">[  OK  ] 52 papers included</div>
+          <div class="term-line success">[  OK  ] Decisions ready for review</div>
           <div class="term-line success">[  OK  ] Data extracted → results.xlsx</div>
-          <div class="term-line dim">[DONE] Elapsed: 18m 03s</div>
+          <div class="term-line dim">[AUDIT] audit_YYYYMMDD_HHMMSS.jsonl</div>
+          <div class="term-line dim">[NOTE] Human verification required</div>
           <div class="term-line"><span class="term-prompt">$</span> <span class="cursor">█</span></div>
         </div>
       </div>
     </div>
   </div>
 </header>
+
+<!-- ========================================================== -->
+<!--  INTRO                                                      -->
+<!-- ========================================================== -->
+<section class="intro" aria-labelledby="intro-title">
+  <div class="container">
+    <h2 class="section-title" id="intro-title">&lt; WHAT_THIS_IS /&gt;</h2>
+    <p class="section-sub">SLR Assistant is an open-source, local-first tool that helps researchers conduct systematic and scoping reviews with AI-assisted screening and extraction.</p>
+    <div class="intro-grid">
+      <article class="intro-card">
+        <h3>WHAT IT DOES</h3>
+        <p>Assists repetitive review tasks: importing references, identifying likely duplicates, screening titles/abstracts, processing PDFs, extracting structured fields, and exporting auditable outputs.</p>
+      </article>
+      <article class="intro-card">
+        <h3>WHO IT IS FOR</h3>
+        <p>PhD students, researchers, professors, evidence synthesis teams, and authors of systematic or scoping reviews who want a local workflow with transparent AI assistance.</p>
+      </article>
+      <article class="intro-card">
+        <h3>WHAT IT IS NOT</h3>
+        <p>Not a replacement for human reviewers, not a public cloud service, not a guarantee of PRISMA compliance, and not a clinical or policy decision system.</p>
+      </article>
+    </div>
+  </div>
+</section>
 
 <!-- ========================================================== -->
 <!--  STATS BAR                                                  -->
@@ -135,8 +209,8 @@
 <!-- ========================================================== -->
 <section class="features" id="features">
   <div class="container">
-    <h2 class="section-title">&lt; SYSTEM CAPABILITIES /&gt;</h2>
-    <p class="section-sub">// Full PRISMA workflow coverage — from import to extraction table</p>
+    <h2 class="section-title">&lt; CORE FEATURES /&gt;</h2>
+    <p class="section-sub">// Supports PRISMA-aligned workflows from import to extraction table. Human verification remains required.</p>
 
     <div class="feature-grid">
 
@@ -149,61 +223,67 @@
       <div class="feature-card">
         <div class="feature-icon">??</div>
         <h3>SMART DEDUP</h3>
-        <p>Exact DOI matching + fuzzy title comparison (≥90% Levenshtein). No duplicates survive.</p>
+        <p>Helps identify likely duplicates using DOI and fuzzy title matching, with final review under researcher control.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">AB</div>
         <h3>ABSTRACT SCREENING</h3>
-        <p>AI screens titles &amp; abstracts before any PDF download — hours of triage eliminated.</p>
+        <p>AI-assisted title and abstract screening before PDF download, producing decisions and rationale for human review.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">PDF</div>
         <h3>PDF PROCESSING</h3>
-        <p>3-engine cascade: pymupdf4llm → pdfplumber → PyPDF2. Handles virtually any PDF.</p>
+        <p>Uses a multi-engine PDF extraction cascade for many common PDF formats, with extraction status recorded.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">!!</div>
-        <h3>ANTI-HALLUCINATION</h3>
-        <p>Pydantic + instructor + Quote-Then-Answer. The AI cites real text, not fabrications.</p>
+        <h3>EVIDENCE-GROUNDED PROMPTS</h3>
+        <p>Quote-Then-Answer prompts encourage evidence-grounded outputs; human verification is still required.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">2X</div>
         <h3>TWO-STAGE SCREEN</h3>
-        <p>Stage 1: fast include/exclude. Stage 2: detailed criteria. Mirrors manual PRISMA.</p>
+        <p>Stage 1: fast include/exclude. Stage 2: detailed criteria. Supports PRISMA-aligned workflows.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">//</div>
         <h3>PARALLEL PROC</h3>
-        <p>Multiple PDFs simultaneously. Configurable threads. Smart caching avoids reprocessing.</p>
+        <p>Multiple PDFs can be processed with configurable workers and provider-aware rate-limit settings.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">XL</div>
         <h3>RICH OUTPUT</h3>
-        <p>Colour-coded Excel, CSV exports, summary reports — ready for your results chapter.</p>
+        <p>Export structured tables for review, verification, and reporting in Excel, CSV, and summary files.</p>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">**</div>
         <h3>FULLY CUSTOM</h3>
-        <p>Your criteria. Your fields. Or pick from 5 built-in domain templates. Total control.</p>
+        <p>Your criteria, your extraction fields, or a starting point from built-in domain templates.</p>
       </div>
 
       <div class="feature-card" style="border-color:#f59e0b;box-shadow:0 0 12px rgba(245,158,11,0.25)">
         <div class="feature-icon" style="color:#f59e0b">WEB</div>
         <h3 style="color:#f59e0b">WEB APP <span style="font-size:0.6rem;background:#f59e0b;color:#000;padding:1px 5px;border-radius:2px;vertical-align:middle">v3.4.0-beta.1</span></h3>
-        <p>Full browser-based UI. 4-stage pipeline. AI prompt enhancer. PDF manager. In-app guide with disclaimer. No desktop install needed.</p>
+        <p>Browser-based local interface after Python setup. No separate desktop GUI required.</p>
       </div>
 
       <div class="feature-card">
-        <div class="feature-icon">✦</div>
-        <h3>AI ENHANCE</h3>
-        <p>One-click AI improvement of your screening criteria, prompts &amp; extraction fields — powered by your own API key.</p>
+        <div class="feature-icon">AI</div>
+        <h3>PROMPT ASSISTANCE</h3>
+        <p>Optional AI assistance can help draft screening criteria, prompts, and extraction fields using your selected provider.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">AUD</div>
+        <h3>CACHE &amp; AUDIT</h3>
+        <p>Configuration-aware JSON cache and JSONL audit ledger record provider, model, prompt hash, text hash, cache key, and cache hit/miss. Audit logs do not store API keys or full paper text.</p>
       </div>
 
     </div>
@@ -215,88 +295,76 @@
 <!-- ========================================================== -->
 <section class="providers" id="providers">
   <div class="container">
-    <h2 class="section-title">&lt; AI PROVIDER DATABASE /&gt;</h2>
-    <p class="section-sub">// Cloud API or local model — your call, commander</p>
+    <h2 class="section-title">&lt; PROVIDER OPTIONS /&gt;</h2>
+    <p class="section-sub">// Choose local models, direct cloud providers, router profiles, or a custom OpenAI-compatible endpoint.</p>
 
     <div class="provider-table-wrap">
       <table class="provider-table">
         <thead>
           <tr>
-            <th>PROVIDER</th>
-            <th>COST</th>
-            <th>REC_MODEL</th>
-            <th>BEST_FOR</th>
+            <th>PROVIDER / PROFILE</th>
+            <th>PRIVACY MODE</th>
+            <th>MODEL SELECTION</th>
+            <th>BEST FOR</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>Ollama</strong></td>
-            <td><span class="badge-green">[FREE]</span></td>
-            <td>llama3 / mistral</td>
-            <td>Large projects, privacy, offline</td>
-          </tr>
-          <tr>
-            <td><strong>Google Gemini</strong></td>
-            <td><span class="badge-green">[FREE]</span></td>
-            <td>gemini-2.5-flash</td>
-            <td>Fast cloud, generous limits</td>
-          </tr>
-          <tr>
-            <td><strong>DeepSeek</strong></td>
-            <td><span class="badge-green">[FREE]</span></td>
-            <td>deepseek-chat</td>
-            <td>Budget-friendly quality</td>
-          </tr>
-          <tr>
-            <td><strong>Kimi (Moonshot)</strong></td>
-            <td><span class="badge-green">[FREE]</span></td>
-            <td>moonshot-v1-auto</td>
-            <td>Long-context cloud AI</td>
-          </tr>
-          <tr>
-            <td><strong>Mistral</strong></td>
-            <td><span class="badge-green">[FREE]</span></td>
-            <td>mistral-large-latest</td>
-            <td>EU data residency</td>
+            <td><span class="badge-green">Local only</span></td>
+            <td>Local model ID from your Ollama installation</td>
+            <td>Most privacy-preserving path; offline/local workflows</td>
           </tr>
           <tr>
             <td><strong>OpenAI</strong></td>
-            <td><span class="badge-yellow">[TRIAL]</span></td>
-            <td>gpt-5.5 / gpt-5.4-mini</td>
-            <td>Quality or balanced cost</td>
+            <td><span class="badge-yellow">Direct cloud</span></td>
+            <td>Recommended presets plus manual model ID</td>
+            <td>Direct provider workflow with current OpenAI models</td>
+          </tr>
+          <tr>
+            <td><strong>Anthropic Claude</strong></td>
+            <td><span class="badge-yellow">Direct cloud</span></td>
+            <td>Recommended presets plus manual model ID</td>
+            <td>Claude workflows where reasoning style fits the protocol</td>
+          </tr>
+          <tr>
+            <td><strong>Google Gemini</strong></td>
+            <td><span class="badge-yellow">Direct cloud</span></td>
+            <td>Recommended presets plus manual model ID</td>
+            <td>Google Gemini users; prefer stable model IDs for reproducibility</td>
+          </tr>
+          <tr>
+            <td><strong>DeepSeek / Mistral / Kimi / xAI</strong></td>
+            <td><span class="badge-yellow">Direct cloud</span></td>
+            <td>Profile defaults plus manual model ID</td>
+            <td>OpenAI-compatible provider profiles without one-off classes</td>
           </tr>
           <tr>
             <td><strong>OpenRouter</strong></td>
-            <td><span class="badge-yellow">[ROUTER]</span></td>
-            <td>openai/gpt-5.5</td>
-            <td>Routes through an additional third party</td>
+            <td><span class="badge-red">Router / third party</span></td>
+            <td>Router model slug or alias</td>
+            <td>Comparing many providers through one router account</td>
           </tr>
           <tr>
-            <td><strong>Anthropic</strong></td>
-            <td><span class="badge-red">[PAID]</span></td>
-            <td>claude-sonnet-4</td>
-            <td>Highest reasoning quality</td>
+            <td><strong>LM Studio / vLLM / LocalAI</strong></td>
+            <td><span class="badge-green">Local only</span></td>
+            <td>Local OpenAI-compatible model ID</td>
+            <td>Self-hosted local or lab-managed inference endpoints</td>
           </tr>
           <tr>
-            <td><strong>Grok (xAI)</strong></td>
-            <td><span class="badge-red">[PAID]</span></td>
-            <td>grok-3-mini-fast</td>
-            <td>Real-time knowledge</td>
-          </tr>
-          <tr>
-            <td><strong>Custom API</strong></td>
-            <td><span class="badge-yellow">[VARY]</span></td>
-            <td>Any OpenAI-compat</td>
-            <td>LM Studio, vLLM, LocalAI</td>
+            <td><strong>Custom OpenAI-Compatible</strong></td>
+            <td><span class="badge-yellow">Custom endpoint</span></td>
+            <td>Any compatible model ID supported by your endpoint</td>
+            <td>Institutional, private, or experimental compatible APIs</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <p class="provider-note">
-      &gt; NO API KEY? Start with <strong>Ollama</strong> — 100% free, runs on your machine.
-      Get it at <a href="https://ollama.ai" target="_blank" rel="noopener">ollama.ai</a>
-      Router providers such as OpenRouter send text through an additional third party.
+      &gt; For maximum privacy, use <strong>Ollama</strong> or another local endpoint you control.
+      Router providers such as OpenRouter send paper text through an additional third party before reaching the selected model provider.
+      Built-in model lists are recommendations only; manual model IDs remain supported.
     </p>
   </div>
 </section>
@@ -306,15 +374,15 @@
 <!-- ========================================================== -->
 <section class="workflow" id="workflow">
   <div class="container">
-    <h2 class="section-title">&lt; EXECUTION PIPELINE /&gt;</h2>
-    <p class="section-sub">// 4 steps from raw references to finished data</p>
+    <h2 class="section-title">&lt; REVIEW WORKFLOW /&gt;</h2>
+    <p class="section-sub">// 4 steps from raw references to review-ready data for human verification</p>
 
     <div class="steps">
       <div class="step">
         <div class="step-num">[01]</div>
         <div class="step-content">
           <h3>IMPORT &amp; DEDUPLICATE</h3>
-          <p>Load RIS/BibTeX/CSV exports. Auto-normalise fields. Remove dupes via DOI + fuzzy title matching.</p>
+          <p>Load RIS/BibTeX/CSV exports. Auto-normalise fields. Identify likely duplicates using DOI and fuzzy title matching.</p>
         </div>
       </div>
       <div class="step-connector">│</div>
@@ -322,7 +390,7 @@
         <div class="step-num">[02]</div>
         <div class="step-content">
           <h3>SCREEN ABSTRACTS</h3>
-          <p>AI evaluates each title &amp; abstract against your criteria → Include / Exclude / Maybe. No PDFs needed yet.</p>
+          <p>AI evaluates each title and abstract against your criteria and produces Include / Exclude / Maybe recommendations. No PDFs needed yet.</p>
         </div>
       </div>
       <div class="step-connector">│</div>
@@ -330,7 +398,7 @@
         <div class="step-num">[03]</div>
         <div class="step-content">
           <h3>PROCESS FULL-TEXT</h3>
-          <p>Drop PDFs into a folder. 3-engine text extraction + two-stage screening + parallel processing + caching.</p>
+          <p>Drop PDFs into a folder. Text extraction, two-stage screening, configurable parallel processing, and configuration-aware JSON caching.</p>
         </div>
       </div>
       <div class="step-connector">│</div>
@@ -338,7 +406,7 @@
         <div class="step-num">[04]</div>
         <div class="step-content">
           <h3>EXTRACT &amp; EXPORT</h3>
-          <p>AI extracts your specified data fields into colour-coded Excel. Copy-paste into your SLR chapter. Done.</p>
+          <p>AI drafts structured extraction fields into Excel/CSV exports for review, verification, and reporting.</p>
         </div>
       </div>
     </div>
@@ -395,14 +463,14 @@
       <button class="tab-btn active" data-tab="windows" onclick="switchTab('windows')">[WIN]</button>
       <button class="tab-btn" data-tab="macos" onclick="switchTab('macos')">[MAC/LIN]</button>
       <button class="tab-btn" data-tab="manual" onclick="switchTab('manual')">[MANUAL]</button>
-      <button class="tab-btn" data-tab="webapp" onclick="switchTab('webapp')" style="color:#f59e0b;border-color:#f59e0b;">[WEB_APP ✦]</button>
+      <button class="tab-btn" data-tab="webapp" onclick="switchTab('webapp')" style="color:#f59e0b;border-color:#f59e0b;">[WEB_APP]</button>
     </div>
 
     <div class="tab-content active" id="tab-windows">
       <div class="code-block">
         <div class="code-header">
           <span>C:\USERS\YOU&gt;</span>
-          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+          <button class="copy-btn" onclick="copyCode(this)" aria-label="Copy Windows installation commands">[COPY]</button>
         </div>
 <pre><code><span class="comment">REM 1. Download or clone the repository</span>
 git clone https://github.com/sadeghanisi/SLR.git
@@ -425,7 +493,7 @@ run.bat
       <div class="code-block">
         <div class="code-header">
           <span>user@mac:~$</span>
-          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+          <button class="copy-btn" onclick="copyCode(this)" aria-label="Copy macOS and Linux installation commands">[COPY]</button>
         </div>
 <pre><code><span class="comment"># 1. Download or clone the repository</span>
 git clone https://github.com/sadeghanisi/SLR.git
@@ -450,7 +518,7 @@ python app.py
       <div class="code-block">
         <div class="code-header">
           <span>ANY_OS&gt;</span>
-          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+          <button class="copy-btn" onclick="copyCode(this)" aria-label="Copy manual installation commands">[COPY]</button>
         </div>
 <pre><code><span class="comment"># Requires Python 3.10+</span>
 python -m venv .venv
@@ -480,7 +548,7 @@ python app.py
       <div class="code-block">
         <div class="code-header">
           <span>WEB_APP_SETUP&gt;</span>
-          <button class="copy-btn" onclick="copyCode(this)">[COPY]</button>
+          <button class="copy-btn" onclick="copyCode(this)" aria-label="Copy WebApp setup commands">[COPY]</button>
         </div>
 <pre><code><span class="comment"># Step 1 — Clone and set up (same as desktop GUI)</span>
 git clone https://github.com/sadeghanisi/SLR.git
@@ -506,20 +574,20 @@ python app.py
       <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.82rem;color:#aaa;line-height:1.6;">
         <div>
           <div style="color:#f59e0b;font-weight:bold;margin-bottom:6px;">&gt; WHAT YOU GET</div>
-          <div>✓ 4-stage PRISMA pipeline in browser</div>
-          <div>✓ AI-powered criteria enhancement</div>
-          <div>✓ PDF upload, view &amp; manager</div>
-          <div>✓ Real-time processing monitor</div>
-          <div>✓ In-app Help &amp; Guide drawer</div>
-          <div>✓ Auto-save settings</div>
+          <div>[OK] 4-stage PRISMA-aligned workflow in browser</div>
+          <div>[OK] AI-assisted criteria drafting</div>
+          <div>[OK] PDF upload, view &amp; manager</div>
+          <div>[OK] Real-time processing monitor</div>
+          <div>[OK] In-app Help &amp; Guide drawer</div>
+          <div>[OK] Non-secret settings persistence</div>
         </div>
         <div>
           <div style="color:#f59e0b;font-weight:bold;margin-bottom:6px;">&gt; REQUIREMENTS</div>
-          <div>• Python 3.10+</div>
-          <div>• Flask (pip install flask)</div>
-          <div>• Any modern browser</div>
-          <div>• AI provider API key (or Ollama for free local)</div>
-          <div>• Keep terminal open while using</div>
+          <div>- Python 3.10+</div>
+          <div>- Flask from the project requirements</div>
+          <div>- Any modern browser</div>
+          <div>- AI provider API key, or Ollama/local endpoint</div>
+          <div>- Keep terminal open while using</div>
         </div>
       </div>
     </div>
@@ -541,22 +609,22 @@ python app.py
 ║  Professors supervising multiple systematic reviews        ║
 ║  Research teams running large-scale evidence synthesis     ║
 ║                                                            ║
-║  &gt;&gt; Weeks of manual screening → Hours of automation &lt;&lt;     ║
+║  &gt;&gt; AI assists repetitive tasks; reviewers decide. &lt;&lt;      ║
 ║                                                            ║
 ╚════════════════════════════════════════════════════════════╝
       </pre>
       <div class="use-case-stats">
         <div>
-          <strong>247 PDFs</strong>
-          <span>~18 min runtime</span>
+          <strong>BENCHMARKS</strong>
+          <span>coming soon</span>
         </div>
         <div>
-          <strong>90%+ ACC</strong>
-          <span>Anti-hallucination</span>
+          <strong>ACCURACY</strong>
+          <span>varies by topic, model, and corpus</span>
         </div>
         <div>
-          <strong>$0 COST</strong>
-          <span>Ollama (local)</span>
+          <strong>LOCAL PATH</strong>
+          <span>Ollama/local models keep text on your machine</span>
         </div>
       </div>
     </div>
@@ -574,7 +642,7 @@ python app.py
 
       <details class="faq-item">
         <summary><span>&gt; Is this tool really free?</span></summary>
-        <p>YES. The tool = 100% free, open source (MIT License). Cloud AI providers may charge for API usage — but Ollama runs locally at $0.</p>
+        <p>The software is free and open source under the MIT License. Cloud AI providers may charge for API usage. Ollama/local models can run without provider API fees, depending on your own hardware.</p>
       </details>
 
       <details class="faq-item">
@@ -589,17 +657,17 @@ python app.py
 
       <details class="faq-item">
         <summary><span>&gt; Which AI provider should I choose?</span></summary>
-        <p>FREE + PRIVATE → Ollama. FREE CLOUD → DeepSeek / Gemini. BEST QUALITY → GPT-5.5 or Claude Sonnet. ROUTER ACCESS → OpenRouter, with an extra third party in the data path.</p>
+        <p>For maximum privacy, start with Ollama or another local endpoint. For cloud workflows, choose a direct provider whose privacy and pricing terms fit your project. Router providers such as OpenRouter add an additional third party in the data path.</p>
       </details>
 
       <details class="faq-item">
         <summary><span>&gt; How accurate is the screening?</span></summary>
-        <p>85–95% on abstract screening, higher on full-text. Quote-Then-Answer forces AI to cite actual paper text → minimal hallucination.</p>
+        <p>Accuracy varies by topic, criteria clarity, model, prompt, PDF quality, and corpus. Quote-Then-Answer prompts encourage evidence-grounded outputs, but human verification is required.</p>
       </details>
 
       <details class="faq-item">
         <summary><span>&gt; Can I use this for my thesis?</span></summary>
-        <p>AFFIRMATIVE. Follows PRISMA framework. Do a final manual check of edge cases, mention the tool in your methods section.</p>
+        <p>Yes, as an AI-assisted workflow. It supports PRISMA-aligned reporting, but you remain responsible for final inclusion/exclusion decisions, extracted-data verification, and methods disclosure.</p>
       </details>
 
       <details class="faq-item">
@@ -609,7 +677,7 @@ python app.py
 
       <details class="faq-item">
         <summary><span>&gt; Does my data leave my computer?</span></summary>
-        <p>Cloud provider → paper text sent to their API. Router provider → paper text also passes through the router. Ollama (local) → everything stays on your machine. We receive ZERO data. Ever.</p>
+        <p>Cloud provider: submitted text is sent to that provider's API. Router provider: submitted text also passes through the router. Ollama/local endpoint: paper text can remain on your computer or local network, depending on how you host it.</p>
       </details>
 
     </div>
@@ -694,7 +762,7 @@ python app.py
     <pre class="ascii-art-sm">
 ┌─────────────────────────────────────────────┐
 │   READY FOR AI-ASSISTED REVIEW?             │
-│   Download → Setup (2 min) → Process.       │
+│   Download → Set up → Review with care.     │
 └─────────────────────────────────────────────┘
     </pre>
     <div class="cta-actions">
@@ -711,6 +779,8 @@ python app.py
   </div>
 </section>
 
+</main>
+
 <!-- ========================================================== -->
 <!--  FOOTER                                                    -->
 <!-- ========================================================== -->
@@ -718,7 +788,7 @@ python app.py
   <div class="container footer-inner">
     <div class="footer-left">
       <span class="logo-icon">&gt;_</span> <strong>SLR_ASSISTANT</strong> v3.4.0-beta.1
-      <p>&copy; 2025&ndash;2026 <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" style="color:inherit;">Mo Anisi</a> // MIT License // All systems nominal</p>
+      <p>&copy; 2025&ndash;2026 <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" style="color:inherit;">Mo Anisi</a> // MIT License // Local-first research software</p>
     </div>
     <div class="footer-links">
       <a href="https://github.com/sadeghanisi/SLR" target="_blank" rel="noopener">[GITHUB]</a>
@@ -746,6 +816,7 @@ window.addEventListener('scroll', () => {
 navToggle.addEventListener('click', () => {
   navLinks.classList.toggle('open');
   navToggle.classList.toggle('open');
+  navToggle.setAttribute('aria-expanded', navLinks.classList.contains('open') ? 'true' : 'false');
 });
 
 // Close menu when clicking outside
@@ -753,6 +824,7 @@ document.addEventListener('click', (e) => {
   if (navLinks.classList.contains('open') && !e.target.closest('#navbar')) {
     navLinks.classList.remove('open');
     navToggle.classList.remove('open');
+    navToggle.setAttribute('aria-expanded', 'false');
   }
 });
 
@@ -803,18 +875,22 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
     if (navLinks && navLinks.classList.contains('open')) {
       navLinks.classList.remove('open');
       navToggle.classList.remove('open');
+      navToggle.setAttribute('aria-expanded', 'false');
     }
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const scrollBehavior = prefersReducedMotion ? 'auto' : 'smooth';
 
     if (href === '#') {
       e.preventDefault();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: scrollBehavior });
       return;
     }
     try {
       const target = document.querySelector(href);
       if (target) {
         e.preventDefault();
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
       }
     } catch (_) { /* invalid selector */ }
   });
