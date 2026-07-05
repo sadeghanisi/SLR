@@ -1,3 +1,7 @@
+import csv
+
+from openpyxl import load_workbook
+
 from housing_enhanced import ScreeningDecision, ScreeningResult, SystematicReviewAutomation
 
 
@@ -31,6 +35,7 @@ def _capture_processed_names(monkeypatch, auto):
             filename=name,
             decision=ScreeningDecision.LIKELY_EXCLUDE.value,
             reasoning="fixture",
+            notes="",
         ), None
 
     monkeypatch.setattr(auto, "_process_one", fake_process_one)
@@ -110,3 +115,39 @@ def test_process_one_uses_relative_name_for_nested_pdf(monkeypatch, tmp_path):
     assert extraction is None
     assert auto.stats["current_file"] == "nested/paper.pdf"
     assert auto.get_paper_text_metadata("nested/paper.pdf")["original_filename"] == "nested/paper.pdf"
+
+
+def test_same_basename_nested_pdfs_remain_distinct_in_csv(monkeypatch, tmp_path):
+    auto, pdf_dir = _automation(monkeypatch, tmp_path, include_subfolders=True)
+    _pdf(pdf_dir / "alpha" / "paper.pdf")
+    _pdf(pdf_dir / "beta" / "paper.pdf")
+    _capture_processed_names(monkeypatch, auto)
+
+    summary = auto.process_pdfs()
+
+    with open(auto.screening_csv, newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+
+    assert summary["statistics"]["total_files"] == 2
+    assert [row["filename"] for row in rows] == ["alpha/paper.pdf", "beta/paper.pdf"]
+
+
+def test_same_basename_nested_pdfs_remain_distinct_in_excel_and_summary(monkeypatch, tmp_path):
+    auto, pdf_dir = _automation(monkeypatch, tmp_path, include_subfolders=True)
+    _pdf(pdf_dir / "alpha" / "paper.pdf")
+    _pdf(pdf_dir / "beta" / "paper.pdf")
+    _capture_processed_names(monkeypatch, auto)
+
+    summary = auto.process_pdfs()
+
+    workbook = load_workbook(auto.screening_excel)
+    worksheet = workbook["Screening Results"]
+    filenames = [
+        worksheet.cell(row=row_index, column=1).value
+        for row_index in range(2, worksheet.max_row + 1)
+    ]
+
+    assert filenames == ["alpha/paper.pdf", "beta/paper.pdf"]
+    assert summary["screening_excel"] == str(auto.screening_excel)
+    assert summary["screened_count"] == 2
+    assert auto.summary_report.exists()

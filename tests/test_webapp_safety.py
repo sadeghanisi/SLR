@@ -154,3 +154,31 @@ def test_pdf_processing_path_cannot_point_outside_upload_dir(isolated_webapp, tm
     response = client.post("/api/processing/start", json={"pdf_folder": str(outside)})
 
     assert response.status_code == 400
+
+
+def test_pdf_delete_rejects_path_traversal(isolated_webapp):
+    batch = isolated_webapp.PDF_UPLOAD_ROOT / "batch"
+    batch.mkdir(parents=True)
+    target = isolated_webapp.PDF_UPLOAD_ROOT / "outside.pdf"
+    target.write_bytes(b"%PDF-1.4\n")
+    isolated_webapp.session["pdf_folder"] = str(batch)
+    client = isolated_webapp.app.test_client()
+
+    response = client.post("/api/pdfs/delete", json={"filename": "../outside.pdf"})
+
+    assert response.status_code == 400
+    assert target.exists()
+
+
+def test_pdf_view_rejects_path_traversal(isolated_webapp):
+    batch = isolated_webapp.PDF_UPLOAD_ROOT / "batch"
+    batch.mkdir(parents=True)
+    target = isolated_webapp.PDF_UPLOAD_ROOT / "outside.pdf"
+    target.write_bytes(b"%PDF-1.4\n")
+    isolated_webapp.session["pdf_folder"] = str(batch)
+    client = isolated_webapp.app.test_client()
+
+    response = client.get("/api/pdfs/file/..%2Foutside.pdf")
+
+    assert response.status_code != 200
+    assert target.exists()

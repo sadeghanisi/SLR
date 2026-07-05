@@ -85,19 +85,21 @@ class ProviderRateLimiter:
             self._condition.notify_all()
 
     def _enter(self) -> float:
-        with self._condition:
-            while self._active >= self.max_concurrency:
-                self._condition.wait()
-            self._active += 1
+        total_wait = 0.0
+        while True:
+            with self._condition:
+                while self._active >= self.max_concurrency:
+                    self._condition.wait()
 
-            now = self._clock()
-            earliest = self._last_start + self.min_interval
-            wait_seconds = max(0.0, earliest - now)
-            self._last_start = now + wait_seconds
+                now = self._clock()
+                wait_seconds = max(0.0, (self._last_start + self.min_interval) - now)
+                if wait_seconds <= 0:
+                    self._active += 1
+                    self._last_start = now
+                    return total_wait
 
-        if wait_seconds > 0:
             self._sleeper(wait_seconds)
-        return wait_seconds
+            total_wait += wait_seconds
 
     def _exit(self) -> None:
         with self._condition:

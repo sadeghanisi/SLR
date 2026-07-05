@@ -121,6 +121,37 @@ def test_openai_and_openrouter_do_not_share_limiter_state(monkeypatch):
     assert openrouter.rate_limit_key.startswith("openrouter|")
 
 
+def test_same_provider_profile_managers_share_limiter(monkeypatch):
+    class FakeOpenAIProvider:
+        def __init__(self, api_key, model, **kwargs):
+            self.api_key = api_key
+            self.model = model
+
+        def chat_completion_with_tokens(self, messages, **kwargs):
+            return "ok", 1
+
+        def get_available_models(self):
+            return [self.model]
+
+    _install_fake_openai_provider(monkeypatch, FakeOpenAIProvider)
+
+    first = LLMManager(
+        "OpenAI",
+        "test-key",
+        "gpt-manual",
+        rate_limit_config={"min_interval": 0, "max_concurrency": 10},
+    )
+    second = LLMManager(
+        "OpenAI",
+        "another-test-key",
+        "gpt-other",
+        rate_limit_config={"min_interval": 0, "max_concurrency": 10},
+    )
+
+    assert first.rate_limit_key == second.rate_limit_key
+    assert first.rate_limiter is second.rate_limiter
+
+
 def test_retry_succeeds_after_simulated_transient_429(monkeypatch):
     calls = {"count": 0}
 
@@ -220,6 +251,41 @@ def test_permanent_auth_error_is_not_retried(monkeypatch):
     assert manager.get_last_call_metadata()["final_status"] == "failed_permanent"
 
 
+def test_unsupported_model_error_is_not_retried(monkeypatch):
+    calls = {"count": 0}
+
+    class UnsupportedModelProvider:
+        def __init__(self, api_key, model, **kwargs):
+            self.api_key = api_key
+            self.model = model
+
+        def chat_completion_with_tokens(self, messages, **kwargs):
+            calls["count"] += 1
+            raise RuntimeError("model not found")
+
+        def get_available_models(self):
+            return [self.model]
+
+    _install_fake_openai_provider(monkeypatch, UnsupportedModelProvider)
+    manager = LLMManager(
+        "OpenAI",
+        "test-key",
+        "missing-model",
+        rate_limit_config={"min_interval": 0, "max_concurrency": 10},
+    )
+
+    with pytest.raises(LLMCallError) as exc:
+        manager.chat_completion_with_tokens([], retry_max_attempts=3, retry_delay=0, retry_jitter=0)
+
+    assert calls["count"] == 1
+    assert exc.value.category == "unsupported_model"
+    metadata = manager.get_last_call_metadata()
+    assert metadata["retry_count"] == 0
+    assert metadata["attempt_count"] == 1
+    assert metadata["final_status"] == "failed_permanent"
+    assert metadata["error_category"] == "unsupported_model"
+
+
 def test_exhausted_retries_produce_clear_error_metadata(monkeypatch):
     calls = {"count": 0}
 
@@ -285,6 +351,36 @@ def test_audit_ledger_records_retry_count_and_error_category(monkeypatch, tmp_pa
     assert events[0]["error_category"] == "rate_limit"
     assert events[0]["rate_limit_wait_seconds"] >= 0
     assert "test-key" not in auto.audit_ledger.read_text(encoding="utf-8")
+
+
+def test_audit_ledger_records_exhausted_retry_failure_metadata(monkeypatch, tmp_path):
+    calls = {"count": 0}
+
+    class AlwaysRateLimitedProvider:
+        def __init__(self, api_key, model, **kwargs):
+            self.api_key = api_key
+            self.model = model
+
+        def chat_completion_with_tokens(self, messages, **kwargs):
+            calls["count"] += 1
+            raise RuntimeError("429 rate limit")
+
+        def get_available_models(self):
+            return [self.model]
+
+    _install_fake_openai_provider(monkeypatch, AlwaysRateLimitedProvider)
+    auto = _automation(tmp_path, llm_provider="OpenAI", llm_model="gpt-manual")
+
+    result = auto.screen_article("paper text", "paper.pdf")
+    events = [json.loads(line) for line in auto.audit_ledger.read_text(encoding="utf-8").splitlines()]
+
+    assert calls["count"] == 2
+    assert result.decision == "Error"
+    assert "failed after 2 attempts" in result.reasoning
+    assert events[0]["status"] == "error"
+    assert events[0]["final_status"] == "failed_retry_exhausted"
+    assert events[0]["retry_count"] == 1
+    assert events[0]["error_category"] == "rate_limit"
 
 
 def test_cache_hit_does_not_call_limiter_or_llm(monkeypatch, tmp_path):
