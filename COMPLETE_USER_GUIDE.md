@@ -158,7 +158,7 @@ Python is the programming language this tool is written in. You need to install 
    ```
    python --version
    ```
-4. If you see something like `Python 3.11.5`, Python is already installed. Skip to Section 5.
+4. If you see something like `Python 3.10.11`, Python is already installed. Skip to Section 5.
 5. If you see an error or a version starting with `2.`, continue below.
 
 ### Step 2: Download Python
@@ -569,7 +569,7 @@ This workflow is for **PRISMA Phase 4**: detailed screening and data extraction 
 
 Create a folder on your computer and place all PDF files in it. Tips:
 - Name each PDF clearly (e.g., `Smith_2022_RCT_diabetes.pdf`).
-- Keep all PDFs in one folder (subfolders are also supported).
+- Keep all PDFs in one folder by default. To process PDFs inside subfolders too, enable **Include subfolders** before starting.
 - Make sure files are actual PDFs, not just renamed image files.
 
 ### Step 2: Open the Setup Tab
@@ -611,6 +611,9 @@ In the **Processing Settings** section:
 
 **Cache Settings:**
 - **Enable Caching** (checkbox): When checked, the tool remembers which PDFs it has already processed. If you need to re-run processing (e.g., after a crash), it skips files already done. **Always keep this checked.** It saves time and money.
+
+**Subfolder Settings:**
+- **Include subfolders**: Off by default. Turn this on only if your selected PDF folder contains nested folders that should also be processed. Nested PDFs appear in outputs with relative names such as `chapter1/Smith_2022.pdf`.
 
 Cache files are now JSON-only during normal app execution. Older `.pkl` cache files are not loaded automatically because pickle can execute unsafe data if a cache file has been tampered with. If you need legacy cache migration, do it manually only from a trusted copy of your own old output folder.
 
@@ -1021,10 +1024,10 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 ### Web App counters, results, or exports look wrong
 
-**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.4.0-beta.1` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
+**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.4.0-beta.2` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
 
 **Solution**:
-1. Confirm you are running version `3.4.0-beta.1` or newer.
+1. Confirm you are running version `3.4.0-beta.2` or newer.
 2. Refresh the browser page and open the Results stage again.
 3. Check the server terminal and `slr_automation.log` for report-generation warnings.
 4. If exports are missing, check the output folder for the generated `.xlsx`, `.csv`, summary, and audit files.
@@ -1212,7 +1215,7 @@ These shortcuts work when the application window is in focus:
 
 ---
 
-*This guide covers the tool's full functionality as of version 3.4.0-beta.1.*
+*This guide covers the tool's full functionality as of version 3.4.0-beta.2*
 
 *For systematic reviews, always consult your institution's research methods guidance and report AI-assisted screening transparently in your methods section.*
 
@@ -1222,7 +1225,7 @@ These shortcuts work when the application window is in focus:
 
 The SLR Assistant includes a **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI. Everything runs locally in your browser and on a Flask server bound to `127.0.0.1` on your own computer. It is not intended for public deployment, shared servers, or multi-user hosting.
 
-Version `3.4.0-beta.1` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without reliably updating included/excluded/flagged counts or report links.
+Version `3.4.0-beta.2` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without reliably updating included/excluded/flagged counts or report links.
 
 ### What Is Different About the Web App?
 
@@ -1330,6 +1333,7 @@ Drag PDF files onto the upload zone. After uploading, a **PDF file table** appea
 - **Rate Delay (s)**: Request spacing used to reduce provider rate-limit errors. Increase to 2-3 seconds for rate-sensitive providers, and reduce Max Workers if errors continue.
 - **Two-Stage Screening**: Fast screen first, then extract only from included papers. Saves cost when many papers are expected to be excluded.
 - **Enable Caching**: Skips files already processed in a previous run. **Always keep this on.**
+- **Include Subfolders**: Off by default. When enabled, PDFs inside nested folders are listed and processed using clear relative names such as `folder/Paper.pdf`.
 
 **Screening Prompt & Extraction Fields**
 

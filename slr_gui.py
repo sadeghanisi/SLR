@@ -3,8 +3,6 @@ Universal Systematic / Scoping Review Automation — GUI
 Works for any academic research domain.
 """
 
-__version__ = "3.4.0-beta.1"
-
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
@@ -18,6 +16,7 @@ from datetime import datetime, timedelta
 import webbrowser
 import time
 import traceback
+from version import VERSION as __version__
 
 try:
     from housing_enhanced import SystematicReviewAutomation, setup_logging
@@ -196,6 +195,7 @@ class SLRAutomationGUI:
             'intermediate_save_interval': 5,
             'enable_smart_truncation': True,
             'preserve_sections': ['abstract', 'introduction', 'method', 'result', 'discussion', 'conclusion'],
+            'include_subfolders': False,
         }
 
         self.screening_prompt  = None
@@ -1233,11 +1233,17 @@ class SLRAutomationGUI:
     def _on_pdf_folder_changed(self, *_):
         folder = self.pdf_folder.get()
         try:
-            pdfs = list(Path(folder).glob("*.pdf")) if folder and Path(folder).is_dir() else []
+            include_subfolders = bool(self.advanced_config.get('include_subfolders', False))
+            if folder and Path(folder).is_dir():
+                finder = Path(folder).rglob if include_subfolders else Path(folder).glob
+                pdfs = [p for p in finder("*.pdf") if p.is_file()]
+            else:
+                pdfs = []
             n = len(pdfs)
             self._pdf_count_total = n
             if n:
-                self.pdf_count_lbl.config(text=f"📄  {n} PDF{'s' if n!=1 else ''} found", foreground="#27ae60")
+                scope = " including subfolders" if include_subfolders else ""
+                self.pdf_count_lbl.config(text=f"📄  {n} PDF{'s' if n!=1 else ''} found{scope}", foreground="#27ae60")
             else:
                 self.pdf_count_lbl.config(text="No PDFs found in this folder", foreground="#c0392b")
         except Exception:
@@ -1446,6 +1452,7 @@ class SLRAutomationGUI:
             result = show_advanced_config(self.root, self.advanced_config)
             if result:
                 self.advanced_config.update(result)
+                self._on_pdf_folder_changed()
                 self._log("Advanced configuration updated", "OK")
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -1474,9 +1481,12 @@ class SLRAutomationGUI:
         if not Path(self.pdf_folder.get()).is_dir():
             messagebox.showerror("Invalid Folder", "PDF folder does not exist.")
             return False
-        pdfs = list(Path(self.pdf_folder.get()).glob("*.pdf"))
+        include_subfolders = bool(self.advanced_config.get('include_subfolders', False))
+        finder = Path(self.pdf_folder.get()).rglob if include_subfolders else Path(self.pdf_folder.get()).glob
+        pdfs = [p for p in finder("*.pdf") if p.is_file()]
         if not pdfs:
-            messagebox.showwarning("No PDFs", f"No PDF files found in:\n{self.pdf_folder.get()}")
+            scope = "\n\nInclude subfolders is enabled." if include_subfolders else ""
+            messagebox.showwarning("No PDFs", f"No PDF files found in:\n{self.pdf_folder.get()}{scope}")
             return False
         return True
 
@@ -1530,6 +1540,7 @@ class SLRAutomationGUI:
                 two_stage_screening=self.two_stage.get(),
                 stop_event=self.stop_event,
                 advanced_config=self.advanced_config,
+                include_subfolders=bool(self.advanced_config.get('include_subfolders', False)),
                 **kwargs,
             )
 
@@ -2269,7 +2280,7 @@ HARDWARE AND SYSTEM REQUIREMENTS
   For models >7B parameters: dedicated GPU with 8–16 GB VRAM
 """),
         "overview": ("""\
-Universal SLR / Scoping Review Assistant  —  v3.4.0-beta.1
+Universal SLR / Scoping Review Assistant  —  v3.4.0-beta.2
 ════════════════════════════════════════════════════════
 
 WHAT IS THIS TOOL?
@@ -4104,7 +4115,7 @@ Q: How do I report AI use in my methods section?
 ──────────────────────────────────────────────────
   Example text you can adapt:
   "Title and abstract screening was conducted using an AI-assisted
-  screening tool powered by [Provider] [Model] (v3.4.0-beta.1). Criteria were
+  screening tool powered by [Provider] [Model] (v3.4.0-beta.2). Criteria were
   defined a priori based on our PICO framework. All Include and Flag
   decisions were independently verified by [reviewer name(s)].
   Data extraction from included full texts applied a Quote-Then-Answer
@@ -4276,7 +4287,7 @@ About This Tool
 ═══════════════
 
 Universal SLR / Scoping Review Automation Tool
-Version 3.4.0-beta.1
+Version 3.4.0-beta.2
 
 AUTHOR
 ───────

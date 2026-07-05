@@ -597,6 +597,8 @@
     // "Add More" button re-triggers the hidden file input
     $("#addMorePdfsBtn").addEventListener("click", () => input.click());
 
+    $("#includeSubfoldersCheck").addEventListener("change", refreshPdfList);
+
     // Clear All
     $("#clearAllPdfsBtn").addEventListener("click", async () => {
       if (!confirm("Remove all uploaded PDFs?")) return;
@@ -645,7 +647,8 @@
 
   async function refreshPdfList() {
     try {
-      const resp = await api("/api/pdfs/list");
+      const includeSubfolders = $("#includeSubfoldersCheck").checked;
+      const resp = await api(`/api/pdfs/list?include_subfolders=${includeSubfolders ? "1" : "0"}`);
       const data = await resp.json();
       renderPdfList(data.files || []);
     } catch (e) {
@@ -699,7 +702,13 @@
         } else if (action === "delete") {
           if (!confirm(`Delete "${displayName}"?`)) return;
           try {
-            const resp = await api("/api/pdfs/delete", { method: "POST", body: { filename: name } });
+            const resp = await api("/api/pdfs/delete", {
+              method: "POST",
+              body: {
+                filename: name,
+                include_subfolders: $("#includeSubfoldersCheck").checked,
+              },
+            });
             const data = await resp.json();
             if (data.error) { showToast(data.error, "error"); return; }
             showToast(`Deleted ${displayName}`, "info");
@@ -744,6 +753,7 @@
         rate_delay: parseFloat($("#rateDelayInput").value) || 1.0,
         two_stage: $("#twoStageCheck").checked,
         cache_enabled: $("#cacheCheck").checked,
+        include_subfolders: $("#includeSubfoldersCheck").checked,
         screening_prompt: $("#pdfScreenPrompt").value || undefined,
         extraction_fields: fields,
       };

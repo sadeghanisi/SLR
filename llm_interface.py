@@ -6,8 +6,6 @@ providers are used only when the API shape is genuinely different. Hosted and
 local OpenAI-compatible services are represented as catalog profiles.
 """
 
-__version__ = "3.4.0-beta.1"
-
 import copy
 import json
 import logging
@@ -21,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from version import VERSION as __version__
 
 logger = logging.getLogger(__name__)
 

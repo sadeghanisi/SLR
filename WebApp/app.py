@@ -28,6 +28,7 @@ from ingestion import (
     export_records_to_csv, export_records_to_excel,
 )
 from housing_enhanced import SystematicReviewAutomation
+from version import VERSION, VERSION_TAG
 
 # Local-only browser UI: this Flask app is intended to run on the researcher's
 # own computer at 127.0.0.1. It is not designed for public hosting or multi-user
@@ -107,6 +108,36 @@ def _resolve_existing_inside(path_value: str, root: Path, require_dir: bool = Fa
     if require_dir and not resolved.is_dir():
         raise ValueError("Path is not a folder")
     return resolved
+
+
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _pdf_relative_name(path: Path, folder: Path) -> str:
+    return path.resolve().relative_to(folder.resolve()).as_posix()
+
+
+def _discover_pdf_files(folder: Path, include_subfolders: bool = False) -> list[Path]:
+    finder = folder.rglob if include_subfolders else folder.glob
+    return sorted(
+        (p for p in finder("*.pdf") if p.is_file() and p.suffix.lower() == ".pdf"),
+        key=lambda p: _pdf_relative_name(p, folder).lower(),
+    )
+
+
+def _resolve_pdf_file(folder: Path, filename: str) -> Path:
+    if not filename:
+        raise ValueError("Missing filename")
+    target = (folder / filename).resolve()
+    target.relative_to(folder.resolve())
+    if target.suffix.lower() != ".pdf":
+        raise ValueError("Invalid filename")
+    return target
 
 
 def _validate_upload_filename(filename: str, allowed_exts: set[str]) -> tuple[str, str]:
@@ -355,7 +386,7 @@ def _processing_payload(auto, active: bool) -> dict:
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=VERSION, version_tag=VERSION_TAG)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -716,42 +747,44 @@ def upload_pdfs():
 @app.route("/api/pdfs/list", methods=["GET"])
 def list_pdfs():
     pdf_folder = session.get("pdf_folder", "")
+    include_subfolders = _truthy(request.args.get("include_subfolders"))
     try:
         folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
     except (FileNotFoundError, ValueError):
         return jsonify({"files": []})
     files = []
     display_names = session.get("pdf_display_names", {})
-    for p in sorted(folder.glob("*.pdf")):
+    for p in _discover_pdf_files(folder, include_subfolders):
+        relative_name = _pdf_relative_name(p, folder)
         files.append({
-            "name": p.name,
-            "display_name": display_names.get(p.name, p.name),
+            "name": relative_name,
+            "display_name": display_names.get(relative_name, relative_name),
             "size": p.stat().st_size,
             "path": str(p),
         })
-    return jsonify({"files": files, "folder": str(folder)})
+    return jsonify({"files": files, "folder": str(folder), "include_subfolders": include_subfolders})
 
 
 @app.route("/api/pdfs/delete", methods=["POST"])
 def delete_pdf():
     d = request.json or {}
     filename = d.get("filename", "")
+    include_subfolders = _truthy(d.get("include_subfolders"))
     pdf_folder = session.get("pdf_folder", "")
     if not pdf_folder or not filename:
         return jsonify({"error": "Missing folder or filename"}), 400
-    if "/" in filename or "\\" in filename:
-        return jsonify({"error": "Invalid filename"}), 400
     try:
         folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
-        target = (folder / secure_filename(filename)).resolve()
-        target.relative_to(folder.resolve())
+        target = _resolve_pdf_file(folder, filename)
     except (FileNotFoundError, ValueError):
         return jsonify({"error": "Invalid filename"}), 400
     if not target.exists():
         return jsonify({"error": "File not found"}), 404
+    relative_name = _pdf_relative_name(target, folder)
     target.unlink()
-    session.setdefault("pdf_display_names", {}).pop(target.name, None)
-    remaining = len(list(folder.glob("*.pdf")))
+    display_names = session.setdefault("pdf_display_names", {})
+    display_names.pop(relative_name, None)
+    remaining = len(_discover_pdf_files(folder, include_subfolders))
     session["pdf_count"] = remaining
     if remaining == 0:
         session["pdf_folder"] = ""
@@ -779,11 +812,8 @@ def serve_pdf(filename):
         return jsonify({"error": "No PDF folder"}), 404
     try:
         folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
-        target = (folder / filename).resolve()
-        target.relative_to(folder.resolve())
+        target = _resolve_pdf_file(folder, filename)
     except (FileNotFoundError, ValueError):
-        return jsonify({"error": "Invalid path"}), 400
-    if target.suffix.lower() != ".pdf":
         return jsonify({"error": "Invalid path"}), 400
     if not target.exists():
         return jsonify({"error": "File not found"}), 404
@@ -794,6 +824,7 @@ def serve_pdf(filename):
 def api_start_processing():
     d = request.json or {}
     pdf_folder = d.get("pdf_folder") or session.get("pdf_folder", "")
+    include_subfolders = _truthy(d.get("include_subfolders"))
     try:
         pdf_folder_path = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
     except FileNotFoundError:
@@ -819,6 +850,7 @@ def api_start_processing():
         "llm_provider": d.get("provider", "OpenAI"),
         "llm_model": d.get("model", ""),
         "two_stage_screening": d.get("two_stage", False),
+        "include_subfolders": include_subfolders,
         "stop_event": session["stop_event"],
         "screening_prompt": d.get("screening_prompt"),
         "extraction_prompt": d.get("extraction_prompt"),
@@ -858,7 +890,7 @@ def api_start_processing():
     t.start()
     session["processing_thread"] = t
 
-    pdf_count = len(list(pdf_folder_path.glob("*.pdf")))
+    pdf_count = len(_discover_pdf_files(pdf_folder_path, include_subfolders))
     return jsonify({"status": "started", "total": pdf_count})
 
 

@@ -143,6 +143,38 @@ def test_pdf_processing_status_results_and_reports_use_canonical_results(isolate
     assert export.status_code == 200
 
 
+def test_webapp_pdf_subfolder_option_controls_list_and_processing_count(isolated_webapp, monkeypatch):
+    pdf_dir = _make_pdf_folder(isolated_webapp, names=("server-a.pdf",))
+    nested = pdf_dir / "nested"
+    nested.mkdir()
+    (nested / "server-b.pdf").write_bytes(b"%PDF-1.4\n")
+    captured = {}
+
+    class CapturingAutomation(FakeProcessingAutomation):
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(isolated_webapp, "SystematicReviewAutomation", CapturingAutomation)
+    client = isolated_webapp.app.test_client()
+
+    direct_list = client.get("/api/pdfs/list").get_json()["files"]
+    recursive_list = client.get("/api/pdfs/list?include_subfolders=1").get_json()["files"]
+
+    assert [item["name"] for item in direct_list] == ["server-a.pdf"]
+    assert [item["name"] for item in recursive_list] == ["nested/server-b.pdf", "server-a.pdf"]
+    assert recursive_list[0]["display_name"] == "nested/server-b.pdf"
+
+    response = client.post(
+        "/api/processing/start",
+        json={"pdf_folder": str(pdf_dir), "include_subfolders": True},
+    )
+    assert response.status_code == 200
+    assert response.get_json()["total"] == 2
+    assert captured["include_subfolders"] is True
+    isolated_webapp.session["processing_thread"].join(timeout=2)
+
+
 class MissingReportAutomation(FakeProcessingAutomation):
     def process_pdfs(self):
         self.screening_results = [

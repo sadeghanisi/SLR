@@ -279,6 +279,13 @@
               <span class="help-icon">?</span>
             </label>
           </div>
+          <div class="form-group">
+            <label class="checkbox-label" title="Also process PDFs inside subfolders of the selected/uploaded PDF folder.">
+              <input type="checkbox" id="includeSubfoldersCheck">
+              Include subfolders
+              <span class="help-icon">?</span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -501,7 +508,7 @@
   <!-- Footer                                                             -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <footer class="appfooter">
-    <span>SLR Assistant v3.4.0-beta.1</span>
+    <span>SLR Assistant {{ version_tag }}</span>
     <span class="footer-sep">·</span>
     <span>By <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" class="footer-link">Mo Anisi</a></span>
     <span class="footer-sep">·</span>
@@ -535,7 +542,7 @@
     <div class="help-drawer-header">
       <div>
         <h2 class="help-drawer-title">Help &amp; Guide</h2>
-        <span class="help-drawer-version">v3.4.0-beta.1</span>
+        <span class="help-drawer-version">{{ version_tag }}</span>
       </div>
       <button class="help-drawer-close" id="helpClose" aria-label="Close help">&times;</button>
     </div>
@@ -948,7 +955,7 @@ funding</pre>
 
           <details class="help-faq">
             <summary>How do I cite this tool in my paper?</summary>
-            <p>Cite the tool as: <em>Anisi, M. (2026). SLR Assistant (v3.4.0-beta.1). GitHub. https://github.com/sadeghanisi/SLR</em><br>
+            <p>Cite the tool as: <em>Anisi, M. (2026). SLR Assistant ({{ version_tag }}). GitHub. https://github.com/sadeghanisi/SLR</em><br>
             Also note the AI model and provider used, the date of the screening run, and your inclusion/exclusion criteria in your methods section.</p>
           </details>
         </section>
@@ -1017,7 +1024,7 @@ funding</pre>
             <h4 class="disclaimer-heading">Academic &amp; Scientific Integrity</h4>
             <ul class="disclaimer-list">
               <li><strong>Disclosure is mandatory.</strong> You must disclose the use of AI-assisted screening in your methods section. Failure to do so may violate journal policies, institutional guidelines, and research integrity standards.</li>
-              <li><strong>Cite the tool correctly.</strong> When reporting, cite the tool, the AI model used, and the access date. Example methods statement: <em>"Abstract screening was conducted using SLR Assistant v3.4.0-beta.1 (Anisi, 2026) with [Provider] [Model], followed by human verification according to the review protocol."</em></li>
+              <li><strong>Cite the tool correctly.</strong> When reporting, cite the tool, the AI model used, and the access date. Example methods statement: <em>"Abstract screening was conducted using SLR Assistant {{ version_tag }} (Anisi, 2026) with [Provider] [Model], followed by human verification according to the review protocol."</em></li>
               <li><strong>AI outputs are not citable sources.</strong> AI-generated reasoning in the results panel is a processing artifact, not a peer-reviewed finding. It must not be quoted or presented as evidence in your review.</li>
               <li><strong>Flagged papers require human decision.</strong> Papers marked "Flag for Review" have been identified as requiring human judgment. Every flagged paper must be reviewed manually before a final inclusion/exclusion decision is recorded.</li>
               <li><strong>Cross-database deduplication is not exhaustive.</strong> The fuzzy-matching deduplication in this tool catches most, but not all, duplicates. A final manual check of your included papers list is recommended.</li>

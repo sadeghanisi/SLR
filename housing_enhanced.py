@@ -4,8 +4,6 @@ Domain-agnostic for any academic research field.
 housing_enhanced.py is kept as the module name for import compatibility.
 """
 
-__version__ = "3.4.0-beta.1"
-
 import os
 import csv
 import re
@@ -27,6 +25,7 @@ import hashlib
 from llm_interface import LLMManager
 from dataclasses import dataclass, asdict, field
 from enum import Enum
+from version import VERSION as __version__
 
 CACHE_SCHEMA_VERSION = "2"
 
@@ -204,6 +203,7 @@ class SystematicReviewAutomation:
         two_stage_screening:  bool = False,
         stop_event:           threading.Event = None,
         advanced_config:      dict = None,
+        include_subfolders:   Optional[bool] = None,
         **llm_kwargs,
     ):
         self.api_key             = api_key
@@ -220,6 +220,11 @@ class SystematicReviewAutomation:
         self.stop_event          = stop_event or threading.Event()
 
         adv = advanced_config or {}
+        self.include_subfolders         = bool(
+            adv.get('include_subfolders', False)
+            if include_subfolders is None
+            else include_subfolders
+        )
         self.max_text_chars             = adv.get('max_text_chars', 100000)
         self.max_retries                = adv.get('max_retries', 3)
         self.retry_delay_base           = adv.get('retry_delay', 0.5)
@@ -301,6 +306,23 @@ class SystematicReviewAutomation:
             'total_api_tokens':    0,
             'current_file':        '',
         }
+
+    # -- PDF discovery -------------------------------------------------------
+
+    def _pdf_display_name(self, pdf_path: Path) -> str:
+        if self.include_subfolders:
+            try:
+                return pdf_path.resolve().relative_to(self.pdf_folder.resolve()).as_posix()
+            except ValueError:
+                pass
+        return pdf_path.name
+
+    def _discover_pdf_files(self) -> List[Path]:
+        finder = self.pdf_folder.rglob if self.include_subfolders else self.pdf_folder.glob
+        return sorted(
+            (p for p in finder("*.pdf") if p.is_file()),
+            key=lambda p: self._pdf_display_name(p).lower(),
+        )
 
     # ── LLM init ────────────────────────────────────────────────────────────
 
@@ -535,14 +557,15 @@ class SystematicReviewAutomation:
         text: str = "",
         page_count: Optional[int] = None,
     ) -> Dict[str, Any]:
+        display_name = self._pdf_display_name(pdf_path)
         metadata = {
-            'original_filename': pdf_path.name,
+            'original_filename': display_name,
             'extraction_method': method,
             'extraction_status': status,
             'extracted_char_count': len(text or ""),
             'page_count': page_count,
         }
-        self._last_text_extraction_metadata[pdf_path.name] = metadata
+        self._last_text_extraction_metadata[display_name] = metadata
         return metadata
 
     def _store_paper_text_cache(
@@ -1066,20 +1089,21 @@ class SystematicReviewAutomation:
         if self.stop_event.is_set():
             return None, None
 
+        pdf_name = self._pdf_display_name(pdf_file)
         with self._lock:
-            self.stats['current_file'] = pdf_file.name
+            self.stats['current_file'] = pdf_name
 
-        self.logger.info(f"Processing: {pdf_file.name}")
+        self.logger.info(f"Processing: {pdf_name}")
         text, ok = self.extract_text_from_pdf(pdf_file)
-        extraction_metadata = self._last_text_extraction_metadata.get(pdf_file.name, {})
+        extraction_metadata = self._last_text_extraction_metadata.get(pdf_name, {})
 
         if ok:
-            self._store_paper_text_cache(pdf_file.name, text, extraction_metadata)
+            self._store_paper_text_cache(pdf_name, text, extraction_metadata)
 
         if not ok:
-            self._record_paper_text_failure(pdf_file.name, extraction_metadata)
+            self._record_paper_text_failure(pdf_name, extraction_metadata)
             return ScreeningResult(
-                filename=pdf_file.name,
+                filename=pdf_name,
                 decision="Error",
                 reasoning=text,
                 notes="PDF extraction failed",
@@ -1087,35 +1111,37 @@ class SystematicReviewAutomation:
 
         # Optional stage-1: title/abstract quick screen
         if self.two_stage_screening:
-            s1 = self.screen_article(text, pdf_file.name, stage="Title/Abstract")
+            s1 = self.screen_article(text, pdf_name, stage="Title/Abstract")
             if s1.decision in (ScreeningDecision.LIKELY_EXCLUDE.value, "Error"):
                 return s1, None
 
         # Full screening
-        screening = self.screen_article(text, pdf_file.name, stage="Full-text")
+        screening = self.screen_article(text, pdf_name, stage="Full-text")
 
         # Data extraction only for included papers
         extraction = None
         if screening.decision == ScreeningDecision.LIKELY_INCLUDE.value and not self.stop_event.is_set():
-            extraction = self.extract_data(text, pdf_file.name)
+            extraction = self.extract_data(text, pdf_name)
 
         return screening, extraction
 
     # ── Batch runner ─────────────────────────────────────────────────────────
 
     def process_pdfs(self) -> Dict:
-        pdf_files = list(self.pdf_folder.glob("*.pdf"))
+        pdf_files = self._discover_pdf_files()
         with self._lock:
             self.stats['total_files'] = len(pdf_files)
 
         if not pdf_files:
-            self.logger.warning(f"No PDFs in {self.pdf_folder}")
+            scope = " or its subfolders" if self.include_subfolders else ""
+            self.logger.warning(f"No PDFs in {self.pdf_folder}{scope}")
             return self._generate_summary()
 
         self.logger.info(
             f"Batch: {len(pdf_files)} PDFs | "
             f"parallel={self.parallel_processing} workers={self.max_workers} | "
-            f"two_stage={self.two_stage_screening}"
+            f"two_stage={self.two_stage_screening} | "
+            f"include_subfolders={self.include_subfolders}"
         )
         t0 = time.time()
 
@@ -1143,7 +1169,7 @@ class SystematicReviewAutomation:
                         record(*future.result())
                     except Exception as e:
                         f = fmap[future]
-                        self.logger.error(f"Worker crashed on {f.name}: {e}")
+                        self.logger.error(f"Worker crashed on {self._pdf_display_name(f)}: {e}")
                         with self._lock:
                             self.stats['failed_files'] += 1
         else:
@@ -1154,7 +1180,7 @@ class SystematicReviewAutomation:
                 try:
                     record(*self._process_one(pdf_file))
                 except Exception as e:
-                    self.logger.error(f"Error on {pdf_file.name}: {e}")
+                    self.logger.error(f"Error on {self._pdf_display_name(pdf_file)}: {e}")
                     with self._lock:
                         self.stats['failed_files'] += 1
 
@@ -1379,13 +1405,17 @@ def main():
     parser.add_argument('--disable_cache', action='store_true')
     parser.add_argument('--sequential',    action='store_true')
     parser.add_argument('--two_stage',     action='store_true')
+    parser.add_argument('--include_subfolders', action='store_true',
+                        help='Recursively include PDFs in subfolders')
     parser.add_argument('--screening_prompt_file',  default=None)
     parser.add_argument('--extraction_prompt_file', default=None)
     parser.add_argument('--dry_run',       action='store_true')
     args = parser.parse_args()
 
     if args.dry_run:
-        pdfs = list(Path(args.pdf_folder).glob("*.pdf"))
+        folder = Path(args.pdf_folder)
+        finder = folder.rglob if args.include_subfolders else folder.glob
+        pdfs = [p for p in finder("*.pdf") if p.is_file()]
         print(f"Dry-run: {len(pdfs)} PDF(s) in {args.pdf_folder}. No API calls made.")
         return
 
@@ -1409,6 +1439,7 @@ def main():
         llm_provider=args.provider,
         llm_model=args.model,
         two_stage_screening=args.two_stage,
+        include_subfolders=args.include_subfolders,
         **kwargs,
     )
 

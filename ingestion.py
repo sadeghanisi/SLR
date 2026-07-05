@@ -15,8 +15,6 @@ export_records_to_excel(records, path)
 export_records_to_csv(records, path)
 """
 
-__version__ = "3.1.0"
-
 import re
 import csv
 import json
@@ -27,6 +25,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Tuple, Callable, Any
 from pathlib import Path
 import logging
+from version import VERSION as __version__
 
 logger = logging.getLogger("SLR_Ingestion")
 

@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-3.4.0--beta.1-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
+[![Version](https://img.shields.io/badge/version-3.4.0--beta.2-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-yellow?style=for-the-badge&logo=python)](https://python.org)
 [![Providers](https://img.shields.io/badge/AI%20Providers-13-purple?style=for-the-badge)](#ai-provider-quick-reference)
@@ -86,7 +86,7 @@ The browser-based interface is located in `WebApp/`. It is a local-only UI for a
 | Local settings | Provider, model, Base URL, and criteria can persist; API keys are not saved |
 | PRISMA-aligned summary | Displays identified, screened, included, excluded, flagged, and failed counts |
 
-Version `3.4.0-beta.1` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without updating included/excluded/flagged counts or report links reliably.
+Version `3.4.0-beta.2` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without updating included/excluded/flagged counts or report links reliably.
 
 ### Launch the Web App
 
@@ -256,7 +256,7 @@ SLR/
 | Ollama connection failed | Run `ollama serve`, verify `http://localhost:11434`, and check `ollama list` |
 | Missing module error | Activate your virtual environment and run `pip install -r requirements.txt` |
 | Web App does not start | Install Flask or run from the `WebApp/` folder with the project environment active |
-| Web App counters/results/export look stale | Refresh the browser, check `/api/processing/results`, and review the server terminal/output log. Version `3.4.0-beta.1` fixes known stale counter/report visibility issues from earlier builds |
+| Web App counters/results/export look stale | Refresh the browser, check `/api/processing/results`, and review the server terminal/output log. Version `3.4.0-beta.2` fixes known stale counter/report visibility issues from earlier builds |
 | Export file missing | Check the output folder and the Web App report warnings; failed report generation should now be surfaced instead of silently completing |
 
 ---

@@ -31,6 +31,7 @@ class AdvancedConfigDialog:
         "max_workers": 1,
         "use_cache": True,
         "dry_run": False,
+        "include_subfolders": False,
         # Output
         "include_excluded": True,
         "output_format": "both",    # csv | excel | both
@@ -160,6 +161,7 @@ class AdvancedConfigDialog:
 
         self._use_cache = tk.BooleanVar(value=bool(cfg.get("use_cache", True)))
         self._dry_run   = tk.BooleanVar(value=bool(cfg.get("dry_run", False)))
+        self._include_subfolders = tk.BooleanVar(value=bool(cfg.get("include_subfolders", False)))
 
         cf = ttk.Checkbutton(frm, text="Enable result caching (skip already-processed files)",
                              variable=self._use_cache)
@@ -175,6 +177,13 @@ class AdvancedConfigDialog:
                               "Use to verify PDF extraction quality before spending credits.",
                   foreground="#777", font=("Segoe UI", 8),
                   wraplength=500).grid(row=4, column=0, columnspan=3, sticky=tk.W)
+
+        sf = ttk.Checkbutton(frm, text="Include PDFs in subfolders",
+                             variable=self._include_subfolders)
+        sf.grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(12, 2))
+        ttk.Label(frm, text="When enabled, PDF discovery recursively scans folders below the selected PDF folder.",
+                  foreground="#777", font=("Segoe UI", 8),
+                  wraplength=500).grid(row=6, column=0, columnspan=3, sticky=tk.W)
 
     # ── Output tab ───────────────────────────────────────────────────────────
 
@@ -218,6 +227,7 @@ class AdvancedConfigDialog:
         cfg["max_workers"]     = int(self._workers.get())
         cfg["use_cache"]       = self._use_cache.get()
         cfg["dry_run"]         = self._dry_run.get()
+        cfg["include_subfolders"] = self._include_subfolders.get()
 
         # Output
         cfg["include_excluded"] = self._include_excluded.get()
