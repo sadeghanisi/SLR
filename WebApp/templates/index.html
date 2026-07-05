@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SLR Automation — Systematic Literature Review</title>
+  <title>SLR Assistant — Systematic Literature Review</title>
   <meta name="description" content="AI-powered systematic literature review automation for researchers.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
 
@@ -501,7 +501,7 @@
   <!-- Footer                                                             -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <footer class="appfooter">
-    <span>SLR Automation v3.3.0</span>
+    <span>SLR Assistant v3.4.0-beta.1</span>
     <span class="footer-sep">·</span>
     <span>By <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" class="footer-link">Mo Anisi</a></span>
     <span class="footer-sep">·</span>
@@ -535,7 +535,7 @@
     <div class="help-drawer-header">
       <div>
         <h2 class="help-drawer-title">Help &amp; Guide</h2>
-        <span class="help-drawer-version">v3.3.0</span>
+        <span class="help-drawer-version">v3.4.0-beta.1</span>
       </div>
       <button class="help-drawer-close" id="helpClose" aria-label="Close help">&times;</button>
     </div>
@@ -948,7 +948,7 @@ funding</pre>
 
           <details class="help-faq">
             <summary>How do I cite this tool in my paper?</summary>
-            <p>Cite the tool as: <em>Anisi, M. (2026). SLR Automation Tool (v3.3.0). GitHub. https://github.com/sadeghanisi/SLR</em><br>
+            <p>Cite the tool as: <em>Anisi, M. (2026). SLR Assistant (v3.4.0-beta.1). GitHub. https://github.com/sadeghanisi/SLR</em><br>
             Also note the AI model and provider used, the date of the screening run, and your inclusion/exclusion criteria in your methods section.</p>
           </details>
         </section>
@@ -990,7 +990,7 @@ funding</pre>
                 <ul>
                   <li><strong>Not a peer reviewer</strong> or substitute for expert methodological assessment of study quality.</li>
                   <li><strong>Not infallible.</strong> AI models make classification errors, miss nuance, misread ambiguous text, and may hallucinate extracted values. Error rates vary by model, domain, and criteria complexity.</li>
-                  <li><strong>Not a guarantee of PRISMA compliance.</strong> Compliance requires human judgment, documented search strategies, risk-of-bias assessment, and proper reporting — none of which this tool performs automatically.</li>
+                  <li><strong>Supports PRISMA-aligned workflows only.</strong> Final PRISMA reporting requires human judgment, documented search strategies, risk-of-bias assessment, and proper reporting.</li>
                   <li><strong>Not a substitute for human screening.</strong> All AI decisions should be treated as recommendations pending researcher verification.</li>
                   <li><strong>Not affiliated with</strong> OpenAI, Anthropic, Google, or any other AI provider. It is a third-party client that calls their public APIs.</li>
                   <li><strong>Not validated</strong> for clinical, regulatory, or policy decision-making contexts without independent verification of outputs.</li>
@@ -1007,7 +1007,7 @@ funding</pre>
               <li><strong>Verify every AI decision.</strong> Screen a representative sample of AI-classified papers manually — including both included and excluded papers — to estimate the error rate before trusting the full output. Best practice is to verify at least 10–20% of decisions independently.</li>
               <li><strong>Verify every extracted value.</strong> Data extracted from PDFs must be checked against the source paper before inclusion in your review table or analysis. AI extraction is a first draft, not a final record.</li>
               <li><strong>Maintain a complete audit trail.</strong> Document the exact AI provider, model name and version, API access date, inclusion/exclusion criteria text, and any post-hoc corrections you made. This is required for transparent reporting.</li>
-              <li><strong>Do not rely solely on AI for eligibility decisions.</strong> Final inclusion and exclusion decisions for a PRISMA-compliant review must involve human judgment, ideally with dual independent screening for a subset of records.</li>
+              <li><strong>Do not rely solely on AI for eligibility decisions.</strong> Final inclusion and exclusion decisions for a PRISMA-aligned review workflow must involve human judgment, ideally with dual independent screening for a subset of records.</li>
               <li><strong>Understand your criteria before automating.</strong> If your inclusion/exclusion criteria are ambiguous to you, they will produce unpredictable AI results. Pilot-test on 10–20 papers with known outcomes before running a full batch.</li>
             </ul>
           </div>
@@ -1017,7 +1017,7 @@ funding</pre>
             <h4 class="disclaimer-heading">Academic &amp; Scientific Integrity</h4>
             <ul class="disclaimer-list">
               <li><strong>Disclosure is mandatory.</strong> You must disclose the use of AI-assisted screening in your methods section. Failure to do so may violate journal policies, institutional guidelines, and research integrity standards.</li>
-              <li><strong>Cite the tool correctly.</strong> When reporting, cite the tool, the AI model used, and the access date. Example methods statement: <em>"Abstract screening was conducted using SLR Automation Tool v3.3.0 (Anisi, 2026) with [Provider] [Model], with manual verification of a random 15% sample (Cohen's κ = 0.XX)."</em></li>
+              <li><strong>Cite the tool correctly.</strong> When reporting, cite the tool, the AI model used, and the access date. Example methods statement: <em>"Abstract screening was conducted using SLR Assistant v3.4.0-beta.1 (Anisi, 2026) with [Provider] [Model], followed by human verification according to the review protocol."</em></li>
               <li><strong>AI outputs are not citable sources.</strong> AI-generated reasoning in the results panel is a processing artifact, not a peer-reviewed finding. It must not be quoted or presented as evidence in your review.</li>
               <li><strong>Flagged papers require human decision.</strong> Papers marked "Flag for Review" have been identified as requiring human judgment. Every flagged paper must be reviewed manually before a final inclusion/exclusion decision is recorded.</li>
               <li><strong>Cross-database deduplication is not exhaustive.</strong> The fuzzy-matching deduplication in this tool catches most, but not all, duplicates. A final manual check of your included papers list is recommended.</li>

@@ -1,5 +1,5 @@
 # Complete User Guide
-# Universal Systematic Literature Review (SLR) Automation Tool
+# Universal Systematic Literature Review (SLR) Assistant
 
 **For Students, Researchers, and Professors — No Technical Background Required**
 
@@ -26,7 +26,7 @@
 17. [Best Practices for Researchers](#17-best-practices-for-researchers)
 18. [Keyboard Shortcuts](#18-keyboard-shortcuts)
 19. [Glossary of Terms](#19-glossary-of-terms)
-20. [Web Application — Browser-Based Interface (v3.3.0)](#20-web-application--browser-based-interface-v330)
+20. [Web Application — Browser-Based Interface](#20-web-application--browser-based-interface)
 
 ---
 
@@ -46,10 +46,10 @@ This process is considered the **gold standard** in research because it is unbia
 
 ### What Does This Tool Do?
 
-This tool uses **Artificial Intelligence** to automate the most time-consuming steps:
+This tool uses **Artificial Intelligence** to assist with the most time-consuming steps:
 
-- **Screening**: It reads each paper and decides whether it meets your inclusion criteria — in seconds.
-- **Data Extraction**: It automatically pulls out the specific information you need (study design, sample size, outcomes, etc.).
+- **Screening**: It reads each paper and suggests whether it appears to meet your inclusion criteria.
+- **Data Extraction**: It creates a first draft of the specific information you need (study design, sample size, outcomes, etc.).
 - **Deduplication**: It removes duplicate papers that came from different databases.
 - **Export**: It generates clean Excel and CSV files ready for your PRISMA flow diagram and final report.
 
@@ -112,7 +112,7 @@ You choose the model inside the tool. You can also type any model ID manually, i
 
 ### What Is PRISMA?
 
-**PRISMA** (Preferred Reporting Items for Systematic Reviews and Meta-Analyses) is an international standard for reporting systematic reviews. It defines a flow diagram showing how many papers you found, removed as duplicates, screened, and included. This tool follows the PRISMA workflow and generates the data you need to complete your PRISMA diagram.
+**PRISMA** (Preferred Reporting Items for Systematic Reviews and Meta-Analyses) is an international standard for reporting systematic reviews. It defines a flow diagram showing how many papers you found, removed as duplicates, screened, and included. This tool supports PRISMA-aligned workflows and generates useful counts and exports, but you remain responsible for final PRISMA reporting and methodological integrity.
 
 ---
 
@@ -227,9 +227,16 @@ The tool requires several supporting software packages:
 
 ## 6. Choosing and Setting Up an AI Provider
 
-This is the most important decision before using the tool. You need AI to screen your papers. Providers are labelled by privacy level: local only, direct cloud provider, router / third party, or custom endpoint.
+This is the most important decision before using the tool. You need access to an AI provider to screen papers with AI assistance. Providers are labelled by privacy level:
+
+- `local_only`: paper text stays on your computer or local network endpoint.
+- `direct_cloud`: paper text is sent directly to the selected cloud provider.
+- `router_third_party`: paper text goes through an additional router provider before reaching the final model provider.
+- `custom_endpoint`: you provide the endpoint, so privacy depends on where that endpoint is hosted.
 
 Router providers such as OpenRouter send paper text through an additional third party before it reaches the selected model provider. For maximum privacy, use Ollama or another local model endpoint you control.
+
+The built-in model lists are recommendations, not restrictions. You can manually type any valid model ID supported by your provider, including models released after this guide was written.
 
 ---
 
@@ -275,11 +282,11 @@ Router providers such as OpenRouter send paper text through an additional third 
 
 ---
 
-### Option 2: DeepSeek — Very Affordable, with Free Credits
+### Option 2: DeepSeek — Cloud Provider
 
-**Best for:** Researchers who want cloud AI quality at minimal cost.
+**Best for:** Researchers who want a cloud AI option and have checked that its current privacy and pricing terms fit their project.
 
-**Cost:** Starts with free credits; then approximately $0.01 per 1 million tokens (~2,000 papers at no charge).
+**Cost:** Provider pricing changes frequently. Check the current DeepSeek pricing page before running a large batch.
 
 #### Setting Up DeepSeek
 
@@ -296,11 +303,11 @@ Router providers such as OpenRouter send paper text through an additional third 
 
 ---
 
-### Option 3: OpenAI (GPT-4o / ChatGPT) — Industry Standard
+### Option 3: OpenAI — Direct Cloud Provider
 
-**Best for:** Researchers who want the most widely validated AI for research tasks.
+**Best for:** Researchers who want a direct cloud provider and have checked that OpenAI's current data and pricing terms fit their project.
 
-**Cost:** New accounts receive a small free credit. After that, approximately $0.15–$2.00 per 1,000 papers depending on the model chosen.
+**Cost:** Pricing and available models change frequently. Check OpenAI's current pricing page before large runs.
 
 #### Setting Up OpenAI
 
@@ -315,7 +322,7 @@ Router providers such as OpenRouter send paper text through an additional third 
 **In the Tool:**
 - Set **Provider** to: `OpenAI`
 - **API Key**: Paste your key
-- **Model**: `gpt-5.5` for quality, or `gpt-5.4-mini` for balanced cost and quality
+- **Model**: choose a recommended model such as `gpt-5.5`, `gpt-5.4-mini`, or manually type any valid OpenAI model ID
 
 ---
 
@@ -323,7 +330,7 @@ Router providers such as OpenRouter send paper text through an additional third 
 
 **Best for:** Researchers who find Claude's reasoning particularly well-suited for academic papers.
 
-**Cost:** Similar to OpenAI pricing. Free trial credits available for new accounts.
+**Cost:** Check Anthropic's current pricing page before large runs.
 
 #### Setting Up Anthropic Claude
 
@@ -336,7 +343,7 @@ Router providers such as OpenRouter send paper text through an additional third 
 **In the Tool:**
 - Set **Provider** to: `Anthropic (Claude)`
 - **API Key**: Paste your key
-- **Model**: `claude-3-5-haiku-20241022` (fast and affordable) or `claude-3-5-sonnet-20241022` (higher quality)
+- **Model**: choose a recommended Claude model or manually type any valid Anthropic model ID
 
 ---
 
@@ -344,7 +351,7 @@ Router providers such as OpenRouter send paper text through an additional third 
 
 **Best for:** Researchers already using Google services, or those wanting a strong free-tier option.
 
-**Cost:** Generous free tier available.
+**Cost:** Check Google's current Gemini API pricing and free-tier limits before large runs.
 
 #### Setting Up Google Gemini
 
@@ -356,7 +363,7 @@ Router providers such as OpenRouter send paper text through an additional third 
 **In the Tool:**
 - Set **Provider** to: `Google Gemini`
 - **API Key**: Paste your key
-- **Model**: `gemini-2.0-flash` (fast and free-tier eligible)
+- **Model**: choose a stable Gemini model ID when reproducibility matters, or manually type any valid Gemini model ID
 
 ---
 
@@ -373,7 +380,7 @@ Router providers such as OpenRouter send paper text through an additional third 
 **In the Tool:**
 - Set **Provider** to: `Mistral`
 - **API Key**: Paste your key
-- **Model**: `mistral-small-latest` (affordable) or `mistral-large-latest` (highest quality)
+- **Model**: choose a recommended Mistral model or manually type any valid Mistral model ID
 
 ---
 
@@ -382,11 +389,11 @@ Router providers such as OpenRouter send paper text through an additional third 
 | Your Situation | Recommended Option |
 |---|---|
 | I have no budget at all | Ollama (free, local) |
-| I want cheap cloud AI | DeepSeek |
-| I want the most trusted option | OpenAI (`gpt-5.5` or `gpt-5.4-mini`) |
-| I care about EU data privacy | Mistral |
+| I want a budget-conscious cloud option | Compare current DeepSeek, Gemini, and other provider pricing |
+| I want a direct cloud provider | OpenAI, Anthropic, Gemini, DeepSeek, Mistral, Kimi, or Grok |
+| I want an EU-based provider option | Review current Mistral terms |
 | I already have a Google account | Google Gemini |
-| I want the best scientific reasoning | Anthropic Claude |
+| I want to compare several clouds through one account | OpenRouter, with the added router third party clearly considered |
 
 ---
 
@@ -436,13 +443,13 @@ At the very bottom of the window:
 
 ### The Five Tabs
 
-| Tab | Icon | Purpose |
-|---|---|---|
-| Ingestion | 📥 | Import reference lists from databases, remove duplicates, screen titles and abstracts |
-| Setup | ⚙ | Configure AI settings, select PDF folders, set screening criteria |
-| Monitor | 📊 | Watch processing in real-time with progress bars and statistics |
-| Results | 📋 | Review and export your final results |
-| Help | ❓ | Built-in help and quick reference |
+| Tab | Purpose |
+|---|---|
+| Ingestion | Import reference lists from databases, remove duplicates, screen titles and abstracts |
+| Setup | Configure AI settings, select PDF folders, set screening criteria |
+| Monitor | Watch processing in real time with progress bars and statistics |
+| Results | Review and export your final results |
+| Help | Built-in help and quick reference |
 
 ---
 
@@ -480,13 +487,13 @@ In PubMed, Scopus, Web of Science, or any other database, save your search resul
 
 ### Step 2: Open the Ingestion Tab
 
-Click the **📥 Ingestion** tab at the top of the application window.
+Click the **Ingestion** tab at the top of the application window.
 
 You will see a workflow banner explaining the steps, and below it several sections.
 
 ### Step 3: Load Your Reference File
 
-In the **① Reference File** section:
+In the **Reference File** section:
 
 1. Click the **"Browse…"** button.
 2. Navigate to where you saved your exported reference file.
@@ -510,13 +517,13 @@ The tool uses **fuzzy matching** (a technique that finds papers with very simila
 
 ### Step 6: Set Up Your Screening Criteria
 
-Before the AI can screen your abstracts, you need to tell it what to look for. Go to the **② Screening Criteria** section within the Ingestion tab, or click **"Customize Screening & Extraction Criteria"** in the Setup tab.
+Before the AI can screen your abstracts, you need to tell it what to look for. Go to the **Screening Criteria** section within the Ingestion tab, or click **"Customize Screening & Extraction Criteria"** in the Setup tab.
 
 See Section 11 of this guide for detailed instructions on writing screening criteria.
 
 ### Step 7: Configure Your AI (Before Screening)
 
-The Ingestion tab uses the same AI settings you configure in the Setup tab. Before running screening, go to the **⚙ Setup** tab and:
+The Ingestion tab uses the same AI settings you configure in the Setup tab. Before running screening, go to the **Setup** tab and:
 1. Select your **Provider** from the dropdown menu.
 2. Enter your **API Key**.
 3. Select your **Model**.
@@ -524,7 +531,7 @@ The Ingestion tab uses the same AI settings you configure in the Setup tab. Befo
 
 ### Step 8: Run Abstract Screening
 
-Return to the **📥 Ingestion** tab and click **"Screen Abstracts"** (the exact button label may vary).
+Return to the **Ingestion** tab and click **"Screen Abstracts"** (the exact button label may vary).
 
 The AI will:
 1. Read each paper's title and abstract.
@@ -567,7 +574,7 @@ Create a folder on your computer and place all PDF files in it. Tips:
 
 ### Step 2: Open the Setup Tab
 
-Click the **⚙ Setup** tab.
+Click the **Setup** tab.
 
 ### Step 3: Configure Your AI Provider
 
@@ -576,11 +583,11 @@ In the **AI Provider Configuration** section:
 1. **Provider**: Click the dropdown and select your AI service (e.g., "OpenAI", "Ollama (Local)", "DeepSeek").
 2. **API Key**: Paste your API key into the field. Click the **"Show"** checkbox if you want to check it.
 3. **Model**: Select a model from the dropdown. If you are unsure:
-   - **OpenAI**: Choose `gpt-5.5` for quality or `gpt-5.4-mini` for balanced cost
-   - **Anthropic**: Choose `claude-3-5-haiku-20241022`
-   - **DeepSeek**: Choose `deepseek-chat`
-   - **Ollama**: Type the name of the model you downloaded (e.g., `llama3.2`)
-4. **Base URL (Ollama only)**: Enter `http://localhost:11434`
+   - **OpenAI**: choose a recommended model or type any valid OpenAI model ID
+   - **Anthropic**: choose a recommended Claude model or type any valid Anthropic model ID
+   - **DeepSeek / Mistral / other profiles**: choose a recommendation or type any valid model ID for that provider
+   - **Ollama**: type the name of the model you downloaded (e.g., `llama3.2`)
+4. **Base URL**: required for Ollama/local/custom endpoints; the default Ollama URL is `http://localhost:11434`
 5. Click **"Test Connection"**. The indicator in the header should turn green.
 
 ### Step 4: Select Your PDF Folder
@@ -621,12 +628,12 @@ This is where you tell the AI exactly what criteria to apply to each paper. See 
 Click the large **"Start Processing"** button.
 
 - The tool will begin reading each PDF, extracting the text, sending it to the AI, and recording decisions.
-- Switch to the **📊 Monitor** tab to watch progress in real time.
+- Switch to the **Monitor** tab to watch progress in real time.
 - You can click **"Stop Processing"** at any time to pause. Cached results will not be lost.
 
 ### Understanding the Monitor Tab
 
-The **📊 Monitor** tab shows:
+The **Monitor** tab shows:
 
 - **Progress Bar**: A visual indicator of how many files have been processed out of the total.
 - **Files Processed**: The count of completed files.
@@ -640,7 +647,7 @@ The **📊 Monitor** tab shows:
 
 ### Step 8: Review Results
 
-When processing completes (or at any point during), go to the **📋 Results** tab to review what the AI found.
+When processing completes (or at any point during), go to the **Results** tab to review what the AI found.
 
 ---
 
@@ -650,7 +657,7 @@ This is one of the most important steps. The quality of your systematic review d
 
 ### Accessing the Criteria Editor
 
-In the **⚙ Setup** tab, click **"Customize Screening & Extraction Criteria"**.
+In the **Setup** tab, click **"Customize Screening & Extraction Criteria"**.
 
 A new window will open with two sections: **Screening Criteria** and **Data Extraction Fields**.
 
@@ -737,7 +744,7 @@ After writing your criteria, click **"Save"** or **"Apply"** in the criteria edi
 
 ## 12. Advanced Settings Explained
 
-In the **⚙ Setup** tab, click **"Advanced Config"** to access fine-tuning options. You do not need to change these for basic use.
+In the **Setup** tab, click **"Advanced Config"** to access fine-tuning options. You do not need to change these for basic use.
 
 ### Text Processing Settings
 
@@ -772,7 +779,7 @@ In the **⚙ Setup** tab, click **"Advanced Config"** to access fine-tuning opti
 ### Saving and Loading Configurations
 
 To save your current configuration (AI provider, model, criteria, paths, and processing settings):
-1. In the **⚙ Setup** tab, click **"Save Settings"**.
+1. In the **Setup** tab, click **"Save Settings"**.
 2. Choose a location and filename (e.g., `diabetes_review_settings.json`).
 
 To load a saved configuration:
@@ -782,6 +789,8 @@ To load a saved configuration:
 This is very useful when managing multiple review projects.
 
 API keys are not written to saved JSON settings files. When OS keyring support is available, the desktop GUI stores API keys in your operating system credential manager; otherwise the key stays in memory for the current session or can be supplied through an environment variable such as `SLR_API_KEY`.
+
+The Web App stores non-secret settings in `webapp_settings.json`, but it does not write API keys to that file.
 
 ---
 
@@ -798,6 +807,7 @@ After processing, results are saved in your chosen output folder. The tool gener
 | `extraction_results_TIMESTAMP.xlsx` | Excel | Detailed extracted data from included papers |
 | `extraction_results_TIMESTAMP.csv` | Spreadsheet | Same as above |
 | `processing_summary_TIMESTAMP.txt` | Text | Statistics and summary of the processing run |
+| `audit_TIMESTAMP.jsonl` | JSON Lines | Non-secret audit ledger for cache and LLM decisions |
 | `slr_automation.log` | Text | Detailed log of every action (for troubleshooting) |
 
 `TIMESTAMP` is replaced with the date and time of the run (e.g., `screening_results_2026-02-26_14-30.xlsx`).
@@ -823,7 +833,7 @@ Open the Excel file. You will see columns including:
 - How many seconds it took to process this paper.
 
 **API Tokens**
-- How many AI "words" were used for this paper. This directly corresponds to cost.
+- How many tokens were reported for this paper, when the provider exposes token usage. This helps estimate cost, but exact billing depends on the provider.
 
 **Text Length**
 - How many characters of text were extracted from the PDF.
@@ -832,11 +842,11 @@ Open the Excel file. You will see columns including:
 
 For papers marked "Include", the extraction file shows all the fields you defined in your criteria, filled in by the AI (title, authors, sample size, methodology, findings, etc.).
 
-**Important**: Always verify a random sample of extractions against the actual papers. AI extraction is highly accurate but not perfect. Treat it as a first draft that requires your review.
+**Important**: Always verify extracted data against the actual papers before publication. Performance varies by topic, criteria clarity, model, and corpus. Treat AI extraction as a first draft that requires human review.
 
 ### Viewing Results in the Application
 
-Go to the **📋 Results** tab to see a summary table of decisions inside the application. You can:
+Go to the **Results** tab to see a summary table of decisions inside the application. You can:
 - Filter by decision type.
 - Click a row to see the full reasoning.
 - Override decisions directly in the application.
@@ -850,13 +860,37 @@ The text file `processing_summary_TIMESTAMP.txt` contains a report including:
 - Decision breakdown (how many included, excluded, flagged, errors)
 - Processing speed (files per minute)
 - Total processing time
-- Total API tokens used and estimated cost
+- Total API tokens used, when available
+
+### Understanding the Audit Ledger
+
+Each processing run also creates an `audit_TIMESTAMP.jsonl` file. This file is useful for reproducibility because it records non-secret metadata about each LLM-related decision.
+
+Audit records may include:
+- Provider and provider profile
+- Model ID
+- Prompt hash, not the full prompt text
+- Text hash, not the full paper text
+- Cache key and cache hit/miss status
+- Parse status
+- Retry count and error category if a call failed
+- Token count when available from the provider
+
+The audit ledger does **not** store API keys, raw secrets, full prompts, or full paper text.
+
+### Understanding the Cache
+
+Runtime cache loading is JSON-only. Old `.pkl` cache files are not loaded automatically.
+
+The cache is configuration-aware. If you change the provider, model, prompt, extraction fields, advanced configuration, stage, cache schema, or normalized paper text, the tool creates a different cache entry instead of reusing stale results.
 
 ---
 
 ## 14. Cost Guide — Free and Paid Options
 
 Understanding your costs prevents surprises on your billing statement.
+
+Provider pricing changes frequently; always check the provider pricing page before large runs. The examples below explain how token usage works, but they are not price guarantees.
 
 ### How AI Pricing Works
 
@@ -866,12 +900,12 @@ AI providers charge per **token**. A token is roughly 4 characters of text, or a
 
 You are charged for both input tokens (what you send to the AI) and output tokens (what the AI sends back to you).
 
-### Cost Examples
+### Token Usage Examples
 
 **Screening 1,000 abstracts with a balanced cloud model:**
 - Each abstract ≈ 400 tokens input + 200 tokens output = 600 tokens
 - 1,000 abstracts × 600 tokens = 600,000 tokens
-- Cost: check current provider pricing before running a large batch
+- Cost: multiply this by the provider's current input/output token pricing
 
 **Extracting data from 200 full PDFs with a balanced cloud model:**
 - Each paper ≈ 10,000 tokens input + 1,000 tokens output = 11,000 tokens
@@ -881,17 +915,14 @@ You are charged for both input tokens (what you send to the AI) and output token
 **Full review: 3,000 abstracts screened + 150 PDFs extracted:**
 - Total cost varies by model, provider pricing, paper length, and extracted field count
 
-### Cost Comparison by Provider
+### Provider Cost Notes
 
-| Provider | Model | Approximate Cost per 1,000 Abstracts | Notes |
-|---|---|---|---|
-| Ollama | llama3.2 | $0.00 | Free — runs locally |
-| DeepSeek | deepseek-chat | ~$0.01 | Very affordable |
-| Google Gemini | gemini-2.0-flash | ~$0.02 | Free tier generous |
-| OpenAI | gpt-5.4-mini | Check current pricing | Balanced option |
-| Anthropic | claude-3-5-haiku | ~$0.10 | Fast and accurate |
-| OpenAI | gpt-4o | ~$1.50 | Most capable |
-| Anthropic | claude-3-5-sonnet | ~$1.80 | Excellent quality |
+| Provider type | Cost note | Privacy note |
+|---|---|---|
+| Ollama / local models | No cloud API bill, but uses your computer's CPU/GPU/RAM | Most privacy-preserving path |
+| Direct cloud providers | Check the provider pricing page | Paper text is sent directly to that provider |
+| Router providers such as OpenRouter | Check both router and selected model/provider terms | Adds an additional third party |
+| Custom endpoints | Depends on where and how the endpoint is hosted | You are responsible for endpoint privacy |
 
 ### Tips to Minimize Costs
 
@@ -899,7 +930,7 @@ You are charged for both input tokens (what you send to the AI) and output token
 2. **Test with 5–10 papers first** — Check that your criteria and settings are correct before running all 3,000.
 3. **Use smaller models for abstract screening** — gpt-5.4-mini, gpt-5.4-nano, or claude-haiku-style models are usually sufficient for title/abstract screening.
 4. **Use larger models only for extraction** — If you need high-quality extraction, upgrade only for the full-text stage.
-5. **Set rate limits** — Avoid accidental bulk processing by keeping rate limits at 1 second initially.
+5. **Slow down if needed** — If you hit rate limits, reduce Max Workers and increase Rate Delay.
 6. **Monitor tokens in real time** — The Monitor tab shows running token usage so you can stop if costs climb unexpectedly.
 
 ---
@@ -946,7 +977,7 @@ You are charged for both input tokens (what you send to the AI) and output token
 **Cause**: You are sending papers to the AI faster than your account tier allows.
 
 **Solution**:
-1. Increase the **Rate Limit Delay** setting to 2.0 or 3.0 seconds.
+1. Increase the **Rate Delay** setting to 2.0 or 3.0 seconds.
 2. Reduce **Max Workers** to 1 or 2.
 3. Wait 5–10 minutes and try again. Rate limits often reset automatically.
 4. If this happens frequently, upgrade your API plan.
@@ -988,6 +1019,19 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 ---
 
+### Web App counters, results, or exports look wrong
+
+**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.4.0-beta.1` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
+
+**Solution**:
+1. Confirm you are running version `3.4.0-beta.1` or newer.
+2. Refresh the browser page and open the Results stage again.
+3. Check the server terminal and `slr_automation.log` for report-generation warnings.
+4. If exports are missing, check the output folder for the generated `.xlsx`, `.csv`, summary, and audit files.
+5. Keep the Web App local at `127.0.0.1`; do not run it as a public or shared server.
+
+---
+
 ### "Some papers show 'Error' in the decision column"
 
 **Cause**: Individual PDFs failed to process. Common reasons include:
@@ -1017,7 +1061,7 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 **Q: Is my data safe? Does the AI company read my papers?**
 
-A: When using cloud providers (OpenAI, Anthropic, etc.), your paper text is sent to their servers for processing. Most academic and business plans explicitly state that your data is not used to train new models. Check each provider's privacy policy. For maximum privacy, use Ollama — everything runs on your computer and nothing leaves it.
+A: When using cloud providers (OpenAI, Anthropic, Gemini, DeepSeek, Mistral, and others), your paper text may be sent to their servers for processing. Check each provider's privacy policy and data-use terms before processing sensitive or unpublished material. Router providers such as OpenRouter add another third party. For maximum privacy, use Ollama or another local endpoint you control.
 
 ---
 
@@ -1028,17 +1072,18 @@ A: Yes, AI can make mistakes. You must review its decisions, particularly:
 - A random 5–10% sample of papers marked "Exclude" to verify accuracy.
 - All included papers before using them in your review.
 
-Research has shown that modern LLMs achieve accuracy comparable to trained human reviewers for abstract screening (80–95% agreement). Use the AI as a first pass, then apply your expert judgment.
+Performance varies by topic, criteria clarity, model, and corpus. Use the AI as a first pass, then apply your expert judgment. Human verification is required.
 
 ---
 
 **Q: Do I still need to follow PRISMA reporting guidelines?**
 
-A: Yes. This tool helps you execute PRISMA phases efficiently, but you still need to:
+A: Yes. This tool supports PRISMA-aligned workflows, but you still need to:
 - Document your search strategy.
 - Report the numbers at each PRISMA stage (identified, duplicates removed, screened, excluded, included).
 - Justify your inclusion/exclusion criteria.
-- Report that AI-assisted screening was used and describe how (this is increasingly accepted and often required to disclose).
+- Report that AI-assisted screening was used and describe how.
+- Ensure final PRISMA reporting and methodological integrity yourself.
 
 ---
 
@@ -1167,15 +1212,17 @@ These shortcuts work when the application window is in focus:
 
 ---
 
-*This guide covers the tool's full functionality as of version 3.2. For v3.3.0 Web App features, see Section 20 below.*
+*This guide covers the tool's full functionality as of version 3.4.0-beta.1.*
 
 *For systematic reviews, always consult your institution's research methods guidance and report AI-assisted screening transparently in your methods section.*
 
 ---
 
-## 20. Web Application — Browser-Based Interface (v3.3.0)
+## 20. Web Application — Browser-Based Interface
 
-Starting with version 3.3.0, the SLR Automation Tool includes a complete **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI — everything runs locally in your browser and on a Flask server bound to `127.0.0.1` on your own computer. It is not intended for public deployment, shared servers, or multi-user hosting.
+The SLR Assistant includes a **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI. Everything runs locally in your browser and on a Flask server bound to `127.0.0.1` on your own computer. It is not intended for public deployment, shared servers, or multi-user hosting.
+
+Version `3.4.0-beta.1` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without reliably updating included/excluded/flagged counts or report links.
 
 ### What Is Different About the Web App?
 
@@ -1184,7 +1231,7 @@ Starting with version 3.3.0, the SLR Automation Tool includes a complete **brows
 | Interface | Tkinter window | Browser (any) |
 | Launch | `python slr_gui.py` | `python app.py` then open browser |
 | Workflow | Tab-based | 4-stage pipeline |
-| AI Enhance | — | ✅ One-click criteria improvement |
+| AI Enhance | Not available | One-click criteria improvement |
 | PDF Manager | Folder picker | Upload + list + view + delete |
 | Help | In-app Help tab | Slide-in guide drawer (9 topics) |
 | Settings persistence | JSON file | JSON file (auto-save) |
@@ -1214,7 +1261,7 @@ pip install flask
 4. Run: `python app.py`
 5. Open your browser and go to: **http://127.0.0.1:5000**
 
-You should see the SLR Automation web interface load in your browser. Keep the terminal window open — it is the server. Closing it will stop the app.
+You should see the SLR Assistant web interface load in your browser. Keep the terminal window open — it is the server. Closing it will stop the app.
 
 Do not expose this local Flask app to the public internet or run it as a shared team server. It is designed for one researcher at a time on the same computer.
 
@@ -1254,7 +1301,7 @@ Drag the file onto the upload zone, or click to browse.
 
 **Step C — AI Abstract Screening (optional)**
 
-1. Write your **Screening Criteria** in the text area (inclusion and exclusion rules). Click **✦ Enhance** to have the AI improve and restructure your criteria automatically.
+1. Write your **Screening Criteria** in the text area (inclusion and exclusion rules). Click **Enhance** to have the AI improve and restructure your criteria automatically.
 2. Click **Screen Abstracts** to begin. The AI reads each abstract and returns a decision.
 3. You can stop and restart at any time. Results appear in the table below as they arrive.
 
@@ -1280,13 +1327,13 @@ Drag PDF files onto the upload zone. After uploading, a **PDF file table** appea
 
 - **Parallel Processing**: Process multiple PDFs simultaneously (faster). Default: on.
 - **Max Workers**: Number of simultaneous processes (default: 3). Reduce to 1–2 if you see rate-limit errors.
-- **Rate Delay (s)**: Pause between papers (default: 1.0). Increase to 2–3 seconds for rate-sensitive providers.
+- **Rate Delay (s)**: Request spacing used to reduce provider rate-limit errors. Increase to 2-3 seconds for rate-sensitive providers, and reduce Max Workers if errors continue.
 - **Two-Stage Screening**: Fast screen first, then extract only from included papers. Saves cost when many papers are expected to be excluded.
 - **Enable Caching**: Skips files already processed in a previous run. **Always keep this on.**
 
 **Screening Prompt & Extraction Fields**
 
-Both text areas have an **✦ Enhance** button that sends the current text to your AI and returns an improved, structured version. You can revert to the original text with one click.
+Both text areas have an **Enhance** button that sends the current text to your AI and returns an improved, structured version. You can revert to the original text with one click.
 
 - **Screening Prompt**: Criteria for deciding whether each PDF should be included in the review.
 - **Extraction Fields**: One field name per line (e.g., `study_design`, `sample_size`, `key_findings`). The AI fills these in from each included paper.
@@ -1297,9 +1344,9 @@ Click **Start Processing** to begin. The **Processing Monitor** shows live progr
 
 After processing, go to Stage 4 to review and export your results.
 
-**PRISMA Summary**
+**PRISMA-Aligned Summary**
 
-Counts at the top: Identified → Screened → Included / Excluded, matching the standard PRISMA flow.
+Counts at the top show identified, screened, included, excluded, flagged, and failed records. These support PRISMA-aligned reporting, but you remain responsible for final PRISMA reporting.
 
 **Screening Results Table**
 
@@ -1314,7 +1361,7 @@ Structured data extracted from included papers. Each column is one of your defin
 
 ### 20.3 AI Enhance Feature
 
-Any text area for criteria writing has an **✦ Enhance** button in the top-right corner of its label row. Clicking it:
+Any text area for criteria writing has an **Enhance** button in the top-right corner of its label row. Clicking it:
 
 1. Sends the current text to your configured AI provider
 2. Uses a detailed system prompt to restructure and improve the content:
@@ -1322,7 +1369,7 @@ Any text area for criteria writing has an **✦ Enhance** button in the top-righ
    - *Screening Prompt* → rewrites as AI evaluator instructions with a three-decision rule
    - *Extraction Fields* → cleans to snake_case, adds standard SLR fields, organises logically
 3. Replaces the textarea content with the improved version
-4. Shows a **↩ Revert** bar so you can restore the original with one click
+4. Shows a **Revert** bar so you can restore the original with one click
 
 This uses your already-configured API key — no extra setup needed.
 
@@ -1338,7 +1385,7 @@ Click the **Guide** button in the top-right corner of the screen to open the in-
 6. **4 · Results & Export** — understanding decisions, export formats
 7. **Writing Criteria** — examples for medical and education reviews, extraction fields
 8. **Cost Guide** — per-provider cost table, cost-saving tips
-9. **⚠ Disclaimer** — what the tool is and is not, researcher responsibilities, academic integrity, data privacy, MIT license text, and a pre-publication checklist
+9. **Disclaimer** — what the tool is and is not, researcher responsibilities, academic integrity, data privacy, MIT license text, and a pre-publication checklist
 
 ### 20.5 Settings Persistence
 

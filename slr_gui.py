@@ -3,7 +3,7 @@ Universal Systematic / Scoping Review Automation — GUI
 Works for any academic research domain.
 """
 
-__version__ = "3.3.0"
+__version__ = "3.4.0-beta.1"
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -121,7 +121,7 @@ class SLRAutomationGUI:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("SLR Automation Tool v3.3.0  —  by Mo Anisi")
+        self.root.title(f"SLR Assistant v{__version__}  —  by Mo Anisi")
         self.root.geometry("1150x800")
         self.root.minsize(950, 680)
 
@@ -242,7 +242,7 @@ class SLRAutomationGUI:
         # Version chip
         chip = tk.Frame(hdr, bg="#1A4971", padx=6, pady=2)
         chip.pack(side=tk.LEFT, padx=(0, 12), pady=18)
-        tk.Label(chip, text="v3.0", bg="#1A4971", fg="#BDD7EE",
+        tk.Label(chip, text=f"v{__version__}", bg="#1A4971", fg="#BDD7EE",
                  font=("Segoe UI", 8, "bold")).pack()
         # Connection indicator (right side)
         right_hdr = tk.Frame(hdr, bg=self._acc)
@@ -2269,12 +2269,12 @@ HARDWARE AND SYSTEM REQUIREMENTS
   For models >7B parameters: dedicated GPU with 8–16 GB VRAM
 """),
         "overview": ("""\
-Universal SLR / Scoping Review Automation Tool  —  v3.0
+Universal SLR / Scoping Review Assistant  —  v3.4.0-beta.1
 ════════════════════════════════════════════════════════
 
 WHAT IS THIS TOOL?
 ──────────────────
-This application automates the most time-consuming stages of a
+This application assists with the most time-consuming stages of a
 Systematic Literature Review (SLR) or Scoping Review: importing
 reference lists from academic databases, deduplicating records,
 screening titles and abstracts with AI, processing full-text PDFs,
@@ -2282,7 +2282,7 @@ and extracting structured data — all in a single desktop application
 that works with ANY research domain.
 
 A review that typically takes weeks of manual work can be completed
-in hours, with full human oversight and PRISMA-compliant reporting.
+in hours, with full human oversight and support for PRISMA-aligned reporting.
 
 WHO IS IT FOR?
 ──────────────
@@ -4063,9 +4063,8 @@ Q: Is my data safe? Does the AI company read my papers?
 Q: Will the AI make mistakes? Is it reliable enough?
 ──────────────────────────────────────────────────────
   Yes, the AI can make mistakes — it is a decision-support tool,
-  not a perfect replacer of expert judgment. Research shows modern
-  LLMs achieve 80–95% agreement with trained human screeners on
-  abstract screening. However, you MUST:
+  not a replacement for expert judgment. Performance varies by topic,
+  criteria clarity, model, and corpus. You MUST:
     • Review ALL papers marked Flag for Human Review.
     • Spot-check 5–10% of Exclude decisions.
     • Verify all extracted data against the original papers.
@@ -4105,7 +4104,7 @@ Q: How do I report AI use in my methods section?
 ──────────────────────────────────────────────────
   Example text you can adapt:
   "Title and abstract screening was conducted using an AI-assisted
-  screening tool powered by [Provider] [Model] (v3.0). Criteria were
+  screening tool powered by [Provider] [Model] (v3.4.0-beta.1). Criteria were
   defined a priori based on our PICO framework. All Include and Flag
   decisions were independently verified by [reviewer name(s)].
   Data extraction from included full texts applied a Quote-Then-Answer
@@ -4277,7 +4276,7 @@ About This Tool
 ═══════════════
 
 Universal SLR / Scoping Review Automation Tool
-Version 3.2.0
+Version 3.4.0-beta.1
 
 AUTHOR
 ───────

@@ -1,97 +1,104 @@
-# 📚 Universal SLR Automation Tool
+# Universal SLR Assistant
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-3.3.0-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
+[![Version](https://img.shields.io/badge/version-3.4.0--beta.1-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-yellow?style=for-the-badge&logo=python)](https://python.org)
-[![Providers](https://img.shields.io/badge/AI%20Providers-13-purple?style=for-the-badge)](#-ai-provider-quick-reference)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)](#-installation)
-[![WebApp](https://img.shields.io/badge/WebApp-v3.3.0-orange?style=for-the-badge)](#-web-application-new-in-v330)
+[![Providers](https://img.shields.io/badge/AI%20Providers-13-purple?style=for-the-badge)](#ai-provider-quick-reference)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge)](#quick-start)
+[![WebApp](https://img.shields.io/badge/WebApp-local--only-orange?style=for-the-badge)](#web-application)
 
-**Automate your systematic literature reviews with AI — from import to extraction table.**
+**AI-assisted systematic/scoping review workflow for screening, extraction, and reproducible outputs.**
 
-[🚀 Quick Start](#-quick-start) · [🌐 Web App](#-web-application-new-in-v330) · [📖 Full Guide](COMPLETE_USER_GUIDE.md) · [🐛 Issues](https://github.com/sadeghanisi/SLR/issues) · [💡 Features](#-features)
+[Quick Start](#quick-start) | [Web App](#web-application) | [Full Guide](COMPLETE_USER_GUIDE.md) | [Issues](https://github.com/sadeghanisi/SLR/issues) | [Features](#features)
 
 </div>
 
 ---
 
-A powerful, open-source tool for automating systematic literature reviews (SLRs) with support for **native AI providers and OpenAI-compatible profiles**, reference ingestion, deduplication, two-stage screening, and structured data extraction. Available as both a **desktop GUI** and a **browser-based Web App**.
+Universal SLR Assistant is a local-first, privacy-conscious tool for individual researchers running systematic or scoping review workflows on their own computer. It supports reference ingestion, deduplication, title/abstract screening, full-text PDF screening, structured extraction, JSON caching, and audit ledgers. It is available as both a desktop GUI and a browser-based local Web App.
 
-> **New to this tool?** Read [COMPLETE_USER_GUIDE.md](COMPLETE_USER_GUIDE.md) for a beginner-friendly walkthrough (assumes no prior AI/LLM knowledge).
+The AI assists the review process; it does not replace human reviewers. Researchers remain responsible for final inclusion/exclusion decisions, extracted data verification, PRISMA reporting, and methodological integrity.
+
+> New to this tool? Read [COMPLETE_USER_GUIDE.md](COMPLETE_USER_GUIDE.md) for a beginner-friendly walkthrough.
 
 ---
 
-## 👤 Author
+## Author
 
 **Mo Anisi**  
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=flat&logo=linkedin)](https://www.linkedin.com/in/manisi/)
 
 ---
 
-## ✨ Features
+## Features
 
-### 🤖 Multi-LLM Support
-- **OpenAI** — GPT-5.5, GPT-5.4 Mini/Nano, GPT-4o, and manually entered model IDs
-- **Anthropic Claude** — Claude Sonnet 4, Opus 4, Claude 3.7/3.5
-- **Google Gemini** — Gemini 2.5 Pro/Flash, 2.0, 1.5
-- **OpenRouter** — OpenAI-compatible router profile; sends text through an additional third party
-- **DeepSeek** — deepseek-chat, deepseek-reasoner, deepseek-coder
-- **Mistral** — Large, Medium, Small, Codestral, Pixtral, Ministral
-- **Kimi (Moonshot AI)** — moonshot-v1-auto, 8k/32k/128k, kimi-latest
-- **Grok (xAI)** — Grok 3, Grok 3 Mini, Grok 2
-- **Ollama** — Any local model, completely free, no API key
-- **Local/custom OpenAI-compatible profiles** — LM Studio, vLLM, LocalAI, and custom endpoints
-- **User-defined models** — Type any model ID directly, including newly released models not yet in the built-in list
+### Multi-LLM Support
 
-### 📥 Reference Ingestion & Deduplication
-- Import RIS (PubMed/Scopus/WoS), BibTeX, and CSV reference files
-- Automatic deduplication via exact DOI match + fuzzy title matching (≥90 % Levenshtein)
-- Abstract-level screening before downloading PDFs (saves time & API cost)
+The provider catalog uses a small set of native adapters plus OpenAI-compatible profiles. Built-in model names are recommendations only; users can manually type any valid model ID supported by their provider.
 
-### 📄 Full-Text Processing & Extraction
-- PDF text extraction cascade: pymupdf4llm → pdfplumber → PyPDF2
-- Anti-hallucination: Pydantic schemas + instructor library + Quote-Then-Answer prompts
-- Parallel processing with configurable workers
-- Intelligent JSON caching to avoid reprocessing
-- Multiple output formats: Excel (colour-coded), CSV, summary reports
+- **Native providers:** OpenAI, Anthropic Claude, Google Gemini, Ollama / Local
+- **OpenAI-compatible profiles:** OpenRouter, DeepSeek, Mistral, Kimi / Moonshot, Grok / xAI, LM Studio, vLLM, LocalAI, and Custom OpenAI-Compatible endpoints
+- **Privacy labels:** `local_only`, `direct_cloud`, `router_third_party`, `custom_endpoint`
+- **Manual model IDs:** Newly released or custom model IDs can be typed directly without code changes
 
-### ⚙️ Fully Customisable
-- Define your own inclusion/exclusion screening criteria
-- Specify exactly what data fields to extract
-- 5 built-in domain templates (Generic, Medical, Education, Environmental, Tech)
-- Advanced settings: temperature, max tokens, rate limits, chunk sizes
-- **AI-powered criteria enhancement** — use your own API key to improve criteria wording with one click
+Router profiles such as OpenRouter send paper text through an additional third party before it reaches the selected model provider. Ollama and other local endpoints are the most privacy-preserving option because paper text can stay on your own computer.
+
+### Reference Ingestion and Deduplication
+
+- Import RIS, BibTeX, CSV, and plain text reference files
+- Deduplicate with DOI matching and fuzzy title matching
+- Optionally screen titles/abstracts before collecting full PDFs
+
+### Full-Text Processing and Extraction
+
+- PDF text extraction cascade: PyMuPDF4LLM, pdfplumber, then PyPDF2 fallback
+- Two-stage screening option: title/abstract-like pass, then full-text pass
+- Structured data extraction using configurable extraction fields
+- JSON cache to avoid repeat LLM calls when the same inputs/configuration are reused
+- Excel, CSV, summary report, and audit ledger outputs
+
+### Local-First Privacy and Safety
+
+- Desktop GUI and Web App are designed for local use on the researcher's own computer
+- The Web App binds to `127.0.0.1` and is not intended for public deployment or multi-user hosting
+- Desktop GUI does not write API keys to `settings.json`
+- Web App does not write API keys to `webapp_settings.json`
+- Legacy `.pkl` cache files are not loaded automatically at runtime
 
 ---
 
-## 🌐 Web Application (New in v3.3.0)
+## Web Application
 
-A complete browser-based interface for the SLR tool, located in the `WebApp/` directory. It is a **local-only UI** for a researcher running the tool on their own computer at `127.0.0.1`; it is not intended for public deployment, shared servers, or multi-user hosting.
+The browser-based interface is located in `WebApp/`. It is a local-only UI for a researcher running the tool on their own computer at `127.0.0.1`. It is not a production web service and should not be hosted publicly without a separate security review and substantial redesign.
 
-### Features unique to the Web App
+### Web App Features
+
 | Feature | Description |
 |---|---|
-| **4-stage pipeline UI** | Configure → Ingest → Process → Results — mirrors the PRISMA workflow |
-| **AI Enhance buttons** | One-click AI improvement for screening criteria, screening prompts, and extraction fields using your configured API key |
-| **PDF file manager** | Upload PDFs, view the list, open in browser, delete individually or clear all |
-| **Custom model input** | Override the model dropdown with any model ID (e.g. `gpt-5.5`, `gpt-5.4-mini`, `llama3.3:70b`) |
-| **Real-time monitor** | Live progress, KPI counts, processing log streamed to the browser |
-| **Help & Guide drawer** | 9-topic in-app guide covering Quick Start, all stages, providers, cost guide, FAQ, and a detailed disclaimer |
-| **Interactive disclaimer** | Pre-publication checklist with interactive checkboxes |
-| **Auto-save settings** | Provider, model, Base URL, and criteria persist between sessions; API keys are not saved by the Web App |
-| **PRISMA summary** | Identified → Screened → Included/Excluded counts displayed on the Results page |
+| 4-stage pipeline UI | Configure, Ingest, Process, Results |
+| AI Enhance buttons | Optional AI improvement for criteria, prompts, and extraction fields using the current session key |
+| PDF file manager | Upload PDFs, view the list, open in browser, delete individually, or clear all |
+| Custom model input | Type any valid model ID supported by the selected provider |
+| Privacy metadata | Shows where paper text is sent: local only, direct cloud, router / third party, or custom endpoint |
+| Real-time monitor | Live progress, decision counters, processing log, and export status |
+| Local settings | Provider, model, Base URL, and criteria can persist; API keys are not saved |
+| PRISMA-aligned summary | Displays identified, screened, included, excluded, flagged, and failed counts |
+
+Version `3.4.0-beta.1` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without updating included/excluded/flagged counts or report links reliably.
 
 ### Launch the Web App
 
-**Windows (one-click):**
+**Windows:**
+
 ```bat
 REM From the WebApp directory:
 run.bat
 ```
 
-**Manual (any OS):**
+**Manual:**
+
 ```bash
 # Activate your virtual environment first:
 source .venv/bin/activate          # macOS / Linux
@@ -101,27 +108,22 @@ cd WebApp
 python app.py
 ```
 
-Then open **http://127.0.0.1:5000** in your browser. Keep it bound to localhost; do not expose this Flask app to a public network.
-
-### Web App dependencies
-```bash
-pip install flask
-# All other dependencies are shared with the main project (requirements.txt)
-```
+Then open `http://127.0.0.1:5000` in your browser. Keep it bound to localhost.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Install
 
-**Windows (one-click):**
+**Windows:**
+
 ```bat
-REM Double-click setup.bat — creates a virtual environment and installs everything
 setup.bat
 ```
 
-**Manual (any OS):**
+**Manual:**
+
 ```bash
 git clone https://github.com/sadeghanisi/SLR.git
 cd SLR
@@ -130,6 +132,7 @@ python -m venv .venv
 
 # Windows:
 .venv\Scripts\activate
+
 # macOS / Linux:
 source .venv/bin/activate
 
@@ -139,158 +142,181 @@ pip install -r requirements.txt
 ### 2. Launch
 
 **Desktop GUI:**
+
 ```bash
 python slr_gui.py
-# Windows shortcut: double-click launch_gui.bat
 ```
 
-**Web App (browser-based):**
+**Web App:**
+
 ```bash
 cd WebApp
 python app.py
-# Then open http://127.0.0.1:5000
 ```
 
-### 3. Configure AI Provider
-- Select a provider → enter API key → choose a model → **Test Connection**
-- **Ollama (free):** install from [ollama.ai](https://ollama.ai), run `ollama serve`, pull a model (`ollama pull llama3`), select "Ollama (Local)" — no API key needed.
+Then open `http://127.0.0.1:5000`.
 
-### 4. Ingest References *(optional)*
-- **Ingestion** tab (GUI) or **Stage 2** (Web App) → load your RIS/BIB/CSV export → Deduplicate → run abstract screening → export included records
+### 3. Configure an AI Provider
+
+- Select a provider.
+- Enter an API key if the provider requires one.
+- Choose a recommended model or manually type any valid model ID.
+- Click **Test Connection**.
+
+For maximum privacy, use **Ollama (Local)** or another local endpoint. For cloud providers, extracted paper text may be sent to the provider API. Router profiles add an additional third party.
+
+### 4. Ingest References
+
+Use the desktop **Ingestion** tab or Web App **Ingest** stage to load RIS, BibTeX, CSV, or text reference exports. Deduplicate records and optionally screen titles/abstracts.
 
 ### 5. Process PDFs
-- **Setup** tab (GUI) or **Stage 3** (Web App) → upload PDFs → customise criteria → **Start Processing**
-- Monitor progress live, view results, export to Excel
+
+Use the desktop **Setup** tab or Web App **Process** stage to select or upload PDFs, set criteria, and start processing. Review decisions and exported files before using results in research outputs.
 
 ---
 
-## 💰 AI Provider Quick Reference
+## AI Provider Quick Reference
 
-| Provider | Free Tier? | Recommended Model | Sign-up |
+| Provider | Privacy level | Adapter type | Model behavior |
 |---|---|---|---|
-| OpenAI | Trial credit | gpt-5.5 / gpt-5.4-mini | [platform.openai.com](https://platform.openai.com) |
-| Anthropic | — | claude-sonnet-4-20250514 | [console.anthropic.com](https://console.anthropic.com) |
-| Google Gemini | ✅ Yes | gemini-2.5-flash | [aistudio.google.com](https://aistudio.google.com) |
-| OpenRouter | Varies | openai/gpt-5.5 | [openrouter.ai](https://openrouter.ai) |
-| DeepSeek | ✅ Generous | deepseek-chat | [platform.deepseek.com](https://platform.deepseek.com) |
-| Mistral | ✅ Free tier | mistral-large-latest | [console.mistral.ai](https://console.mistral.ai) |
-| Kimi (Moonshot) | ✅ Free tier | moonshot-v1-auto | [platform.moonshot.cn](https://platform.moonshot.cn) |
-| Grok (xAI) | — | grok-3-mini-fast | [console.x.ai](https://console.x.ai) |
-| Ollama | ✅ Fully free | llama3 / mistral | [ollama.ai](https://ollama.ai) |
-| LM Studio / vLLM / LocalAI / Custom | Varies | Manual model ID | Local or custom endpoint |
+| OpenAI | `direct_cloud` | Native | Recommended defaults plus manual model IDs |
+| Anthropic Claude | `direct_cloud` | Native | Recommended models are configurable guidance |
+| Google Gemini | `direct_cloud` | Native | Prefer stable model IDs for reproducibility |
+| OpenRouter | `router_third_party` | OpenAI-compatible profile | Router slugs and aliases accepted; adds third party |
+| DeepSeek | `direct_cloud` | OpenAI-compatible profile | Manual model IDs accepted |
+| Mistral | `direct_cloud` | OpenAI-compatible profile | Manual model IDs accepted |
+| Kimi / Moonshot | `direct_cloud` | OpenAI-compatible profile | Manual model IDs accepted |
+| Grok / xAI | `direct_cloud` | OpenAI-compatible profile | Manual model IDs accepted |
+| Ollama | `local_only` | Native local | Local model names discovered or typed manually |
+| LM Studio | `local_only` | OpenAI-compatible profile | Local/custom model IDs |
+| vLLM | `custom_endpoint` | OpenAI-compatible profile | Local or custom hosted model IDs |
+| LocalAI | `custom_endpoint` | OpenAI-compatible profile | Local or custom model IDs |
+| Custom OpenAI-Compatible | `custom_endpoint` | OpenAI-compatible adapter | User supplies Base URL and model ID |
 
-> Router profiles such as OpenRouter send paper text through an additional third party before it reaches the selected model provider. Use Ollama/local models when maximum privacy is required.
-
-
-**Cost estimates:**
-| Approach | Est. Cost | Best For |
-|---|---|---|
-| Ollama (local) | $0 | Large projects, privacy-sensitive data |
-| DeepSeek / Gemini | Free tier | Budget-friendly cloud option |
-| GPT-5.4-mini / small cloud models | Varies by provider | Good balance of cost & quality |
-| GPT-5.5 / Claude Sonnet 4 | Varies by provider | Highest quality |
-
-> **Tip:** Always test with 5–10 PDFs before processing your full corpus.
+Provider pricing changes frequently; always check the provider pricing page before large runs. Token usage depends on paper length, selected model, prompt size, extraction fields, cache hits, and retry behavior.
 
 ---
 
-## 🗂️ Project Structure
+## Cache and Auditability
 
-```
+Runtime cache loading is JSON-only. Old `.pkl` cache files are not loaded automatically because pickle files can execute unsafe data if tampered with.
+
+Cache keys are configuration-aware. Changing any of the following creates a different cache entry:
+
+- Normalized paper text hash
+- Screening or extraction stage
+- Provider/profile
+- Model ID
+- Prompt hash
+- Extraction fields hash
+- Advanced configuration hash
+- Cache schema and app/pipeline version
+
+Each run writes an audit ledger such as `audit_YYYYMMDD_HHMMSS.jsonl` in the output folder. Audit records include non-secret metadata such as provider, model, prompt hash, text hash, cache key, cache hit/miss, parse status, retry count, token count when available, and error category if a call fails.
+
+The audit ledger does not store API keys, raw secrets, full prompts, or full paper text.
+
+---
+
+## Project Structure
+
+```text
 SLR/
-├── slr_gui.py                # Desktop GUI (Tkinter, 5 tabs)
-├── housing_enhanced.py       # Core automation engine
-├── llm_interface.py          # LLM provider catalog, native adapters, and OpenAI-compatible profiles
-├── ingestion.py              # Reference import, dedup & abstract screening
-├── prompt_editor.py          # Screening/extraction criteria editor (GUI)
-├── advanced_config.py        # Advanced settings dialog (GUI)
-├── custom_models.json        # User-added model IDs (auto-created on first use)
-├── test_tool.py              # Basic test suite
+├── slr_gui.py                # Desktop GUI
+├── housing_enhanced.py       # Core review workflow engine
+├── llm_interface.py          # Provider catalog, adapters, model discovery, retry/limiter helpers
+├── ingestion.py              # Reference import, deduplication, abstract screening
+├── prompt_editor.py          # Criteria editor
+├── advanced_config.py        # Advanced settings dialog
+├── custom_models.json        # User-added model IDs, auto-created when needed
 ├── requirements.txt          # Python dependencies
-├── setup.bat                 # Windows one-click setup
-├── install_dependencies.bat  # Alternative dependency installer
+├── tests/                    # Pytest regression tests
+├── setup.bat                 # Windows setup helper
 ├── launch_gui.bat            # Windows GUI launcher
-├── COMPLETE_USER_GUIDE.md    # Detailed beginner-friendly guide
-├── README.md                 # This file
-├── LICENSE                   # MIT License
+├── COMPLETE_USER_GUIDE.md    # Beginner-friendly guide
+├── README.md                 # Project overview
 ├── docs/                     # GitHub Pages website
-└── WebApp/                   # Browser-based Web Application (v3.3.0)
-    ├── app.py                # Flask backend (19+ API routes)
-    ├── run.bat               # Windows one-click launcher
-    ├── requirements.txt      # Web app dependencies (Flask)
+└── WebApp/                   # Local-only browser UI
+    ├── app.py                # Flask backend
+    ├── run.bat               # Windows Web App launcher
+    ├── requirements.txt      # Web App dependencies
     ├── templates/
-    │   └── index.html        # Single-page application
     ├── static/
-    │   ├── css/style.css     # Academic research design system
-    │   └── js/app.js         # Frontend logic
-    └── uploads/              # Uploaded files (gitignored)
+    └── uploads/              # Uploaded files, gitignored
 ```
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 | Problem | Solution |
 |---|---|
-| "Failed to initialise LLM manager" | Check API key & internet; click **Test Connection** |
-| "Rate limit exceeded" | Increase rate-limit delay; reduce Max Workers |
-| Ollama connection failed | Run `ollama serve`, verify `http://localhost:11434`, check `ollama list` |
-| Missing module error | Run `pip install -r requirements.txt` inside your venv |
-| Web App: "No module named flask" | Run `pip install flask` in your venv, or use `run.bat` |
-| Provider list not loading (Web App) | Hard-refresh browser (`Ctrl+Shift+R`); check the server terminal for errors |
+| LLM manager or connection test fails | Check provider, model ID, API key, Base URL, and internet connection |
+| Rate limit or timeout errors | Reduce Max Workers and increase Rate Delay; try smaller batches |
+| Ollama connection failed | Run `ollama serve`, verify `http://localhost:11434`, and check `ollama list` |
+| Missing module error | Activate your virtual environment and run `pip install -r requirements.txt` |
+| Web App does not start | Install Flask or run from the `WebApp/` folder with the project environment active |
+| Web App counters/results/export look stale | Refresh the browser, check `/api/processing/results`, and review the server terminal/output log. Version `3.4.0-beta.1` fixes known stale counter/report visibility issues from earlier builds |
+| Export file missing | Check the output folder and the Web App report warnings; failed report generation should now be surfaced instead of silently completing |
 
 ---
 
-## 🤝 Contributing
+## Testing
 
-Pull requests are welcome! Key extension points:
+Run the primary test suite with:
 
-- **New LLM provider** → [`llm_interface.py`](llm_interface.py) — add an OpenAI-compatible profile unless the API shape requires a native adapter
-- **Domain template** → [`prompt_editor.py`](prompt_editor.py) — add to `TemplateSelector`
-- **GUI enhancement** → [`slr_gui.py`](slr_gui.py)
-- **Web App** → [`WebApp/app.py`](WebApp/app.py) and [`WebApp/static/`](WebApp/static/)
-- **Extraction logic** → [`housing_enhanced.py`](housing_enhanced.py)
+```bash
+python -m pytest -q
+```
+
+The legacy `test_tool.py` smoke script is not the primary test suite.
+
+---
+
+## Contributing
+
+Pull requests are welcome. Key extension points:
+
+- New LLM provider: update `llm_interface.py`; prefer an OpenAI-compatible profile unless the API shape requires a native adapter
+- Domain template: update `prompt_editor.py`
+- GUI enhancement: update `slr_gui.py`
+- Web App: update `WebApp/app.py`, `WebApp/templates/`, or `WebApp/static/`
+- Tests: add or update pytest tests under `tests/`
 
 Please open an [issue](https://github.com/sadeghanisi/SLR/issues) before major changes.
 
 ---
 
-## 📜 License
+## License
 
-[MIT](LICENSE) — free to use, modify, and distribute with attribution.
-
----
-
-## 🆘 Support
-
-1. Read the [Complete User Guide](COMPLETE_USER_GUIDE.md)
-2. Check the in-app **Help** panel (Web App) or **Help** tab (GUI)
-3. Review logs in the output folder
-4. Run the test suite: `python -m pytest`
-5. Open an [issue on GitHub](https://github.com/sadeghanisi/SLR/issues)
+[MIT](LICENSE) - free to use, modify, and distribute with attribution.
 
 ---
 
-## ⚠️ Disclaimer
+## Support
 
-> **IMPORTANT — Please read before use.**
+1. Read the [Complete User Guide](COMPLETE_USER_GUIDE.md).
+2. Check the in-app Help panel or Help tab.
+3. Review logs in the output folder.
+4. Run `python -m pytest -q`.
+5. Open an [issue on GitHub](https://github.com/sadeghanisi/SLR/issues).
 
-**"As Is" Provision.** This software is provided "as is," without warranty of any kind, express or implied. The authors and distributors accept no responsibility for decisions made based on AI-generated screening or extraction results.
+---
 
-**AI Limitations.** This tool assists with — but does not replace — human judgment. AI models can and do make errors, including incorrect inclusion/exclusion decisions and inaccurate data extraction. All AI outputs must be independently verified by qualified researchers before use in any publication, thesis, clinical decision, or policy document.
+## Disclaimer
 
-**No Academic Guarantee.** Use of this tool does not ensure compliance with PRISMA, CONSORT, or any other reporting standard. Researchers remain solely responsible for the methodological integrity, transparency, and accuracy of their systematic reviews.
+**As Is Provision.** This software is provided "as is," without warranty of any kind, express or implied. The authors and distributors accept no responsibility for decisions made based on AI-generated screening or extraction results.
 
-**Local-First Scope.** The desktop GUI and Web App are designed for individual researchers running the tool locally on their own computers. The Web App is not a production multi-user service and should not be hosted publicly without a separate security review and substantial redesign.
+**AI Limitations.** This tool assists with, but does not replace, human judgment. AI models can make errors, including incorrect inclusion/exclusion decisions and inaccurate data extraction. All AI outputs must be independently verified by qualified researchers before use in any publication, thesis, clinical decision, or policy document.
 
-**Data Privacy.** When using cloud-based AI providers (OpenAI, Anthropic, Google, DeepSeek, OpenRouter, or others), your paper content is transmitted to third-party servers. Router providers such as OpenRouter add another third party between this tool and the final model provider. The authors of this tool make no representations regarding how those providers store, process, or use your data. Consult each provider's privacy policy before processing sensitive or unpublished material. **For confidential data, use the local Ollama option.**
+**PRISMA and Academic Responsibility.** This tool supports PRISMA-aligned workflows. Researchers remain responsible for final PRISMA reporting, methodological integrity, transparency, and accuracy.
 
-**API Keys.** The Web App does not save API keys to `webapp_settings.json`. The desktop GUI no longer writes API keys to `settings.json`; when the optional OS keyring backend is available it stores keys in the operating system credential manager, otherwise keys remain in memory for the current session or can be supplied through environment variables such as `SLR_API_KEY`.
+**Local-First Scope.** The desktop GUI and Web App are designed for individual researchers running the tool locally on their own computers. The Web App is not a production multi-user service.
 
-**Cost and Billing.** API usage fees are charged directly by third-party AI providers. The authors of this tool have no visibility into, or responsibility for, charges incurred through your API account. Monitor your usage and set billing limits with your provider before running large processing jobs.
+**Data Privacy.** When using cloud-based AI providers, paper content may be transmitted to third-party servers. Router providers such as OpenRouter add another third party between this tool and the final model provider. Consult each provider's privacy policy before processing sensitive or unpublished material. For confidential data, use a local provider such as Ollama when feasible.
 
-**Institutional Compliance.** It is your responsibility to verify that AI-assisted research methods comply with your institution's policies, your funding body's requirements, and the ethical standards of your field. Disclose AI tool usage in all relevant sections of your research output.
+**API Keys.** The desktop GUI does not write API keys to `settings.json`; when the optional OS keyring backend is available it stores keys in the operating system credential manager, otherwise keys remain in memory for the current session or can be supplied through environment variables such as `SLR_API_KEY`. The Web App does not save API keys to `webapp_settings.json`.
 
-**No Liability.** To the fullest extent permitted by law, the authors, contributors, and distributors of this tool shall not be liable for any direct, indirect, incidental, or consequential damages arising from its use, including but not limited to data loss, incorrect research conclusions, academic penalties, or financial charges.
+**Cost and Billing.** API usage fees are charged directly by third-party AI providers. Provider pricing changes frequently; always check the provider pricing page and set billing limits before large runs.
 
-*By using this tool, you acknowledge that you have read, understood, and accepted these terms.*
+**Institutional Compliance.** Verify that AI-assisted research methods comply with your institution's policies, funding requirements, and field-specific ethical standards. Disclose AI tool usage in relevant research outputs.

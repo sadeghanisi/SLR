@@ -6,7 +6,7 @@ providers are used only when the API shape is genuinely different. Hosted and
 local OpenAI-compatible services are represented as catalog profiles.
 """
 
-__version__ = "3.4.0"
+__version__ = "3.4.0-beta.1"
 
 import copy
 import json

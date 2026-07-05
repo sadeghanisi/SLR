@@ -4,7 +4,7 @@ Domain-agnostic for any academic research field.
 housing_enhanced.py is kept as the module name for import compatibility.
 """
 
-__version__ = "3.1.0"
+__version__ = "3.4.0-beta.1"
 
 import os
 import csv
