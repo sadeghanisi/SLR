@@ -25,10 +25,12 @@ The AI assists the review process; it does not replace human reviewers. In Works
 
 ---
 
-## Author
+## Authors
 
-**Farahnaz Yazdanpanah Faragheh**
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?style=flat&logo=linkedin)](https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/)
+- **Mohammad Sadegh "Mo" Anisi**
+  [![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?style=flat&logo=linkedin)](https://www.linkedin.com/in/manisi/)
+- **Farahnaz Yazdanpanah Faragheh**
+  [![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?style=flat&logo=linkedin)](https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/)
 
 ---
 
