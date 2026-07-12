@@ -120,7 +120,7 @@ class SLRAutomationGUI:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title(f"SLR Assistant v{__version__}  —  by Mo Anisi")
+        self.root.title(f"SLR Assistant v{__version__}")
         self.root.geometry("1150x800")
         self.root.minsize(950, 680)
 
@@ -2280,7 +2280,7 @@ HARDWARE AND SYSTEM REQUIREMENTS
   For models >7B parameters: dedicated GPU with 8–16 GB VRAM
 """),
         "overview": ("""\
-Universal SLR / Scoping Review Assistant  —  v3.4.0-rc.1
+Universal SLR / Scoping Review Assistant  —  v3.5.2
 ════════════════════════════════════════════════════════
 
 WHAT IS THIS TOOL?
@@ -4115,7 +4115,7 @@ Q: How do I report AI use in my methods section?
 ──────────────────────────────────────────────────
   Example text you can adapt:
   "Title and abstract screening was conducted using an AI-assisted
-  screening tool powered by [Provider] [Model] (v3.4.0-rc.1). Criteria were
+  screening tool powered by [Provider] [Model] (v3.5.2). Criteria were
   defined a priori based on our PICO framework. All Include and Flag
   decisions were independently verified by [reviewer name(s)].
   Data extraction from included full texts applied a Quote-Then-Answer
@@ -4287,12 +4287,12 @@ About This Tool
 ═══════════════
 
 Universal SLR / Scoping Review Automation Tool
-Version 3.4.0-rc.1
+Version 3.5.2
 
 AUTHOR
 ───────
-Mo Anisi
-LinkedIn: https://www.linkedin.com/in/manisi/
+Farahnaz Yazdanpanah Faragheh
+LinkedIn: https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/
 
 REPOSITORY
 ───────────

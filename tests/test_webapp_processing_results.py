@@ -1,4 +1,3 @@
-import threading
 from pathlib import Path
 
 import pytest
@@ -26,22 +25,17 @@ def isolated_webapp(tmp_path, monkeypatch):
     webapp.session.update({
         "references": [],
         "dedup_stats": None,
-        "screening_results": [],
         "pdf_folder": "",
-        "automation": None,
-        "stop_event": threading.Event(),
-        "processing_thread": None,
-        "progress": [],
-        "progress_lock": threading.Lock(),
         "pdf_display_names": {},
-        "processing_summary": None,
-        "processing_error": "",
-        "processing_report_errors": [],
-        "processing_reports": {},
     })
+    webapp.runtime_state.initialize(webapp.session)
 
     webapp.app.config.update(TESTING=True)
     return webapp
+
+
+def _processing_runtime(app_module):
+    return app_module.runtime_state.processing(app_module.session)
 
 
 def _make_pdf_folder(app_module, names=("server-a.pdf", "server-b.pdf", "server-c.pdf")):
@@ -110,7 +104,7 @@ def test_pdf_processing_status_results_and_reports_use_canonical_results(isolate
 
     response = client.post("/api/processing/start", json={"pdf_folder": str(pdf_dir)})
     assert response.status_code == 200
-    isolated_webapp.session["processing_thread"].join(timeout=2)
+    _processing_runtime(isolated_webapp).thread.join(timeout=2)
 
     progress = client.get("/api/progress").get_json()
     assert progress["active"] is False
@@ -172,7 +166,7 @@ def test_webapp_pdf_subfolder_option_controls_list_and_processing_count(isolated
     assert response.status_code == 200
     assert response.get_json()["total"] == 2
     assert captured["include_subfolders"] is True
-    isolated_webapp.session["processing_thread"].join(timeout=2)
+    _processing_runtime(isolated_webapp).thread.join(timeout=2)
 
 
 class MissingReportAutomation(FakeProcessingAutomation):
@@ -199,7 +193,7 @@ def test_pdf_processing_missing_reports_are_exposed(isolated_webapp, monkeypatch
 
     response = client.post("/api/processing/start", json={"pdf_folder": str(pdf_dir)})
     assert response.status_code == 200
-    isolated_webapp.session["processing_thread"].join(timeout=2)
+    _processing_runtime(isolated_webapp).thread.join(timeout=2)
 
     progress = client.get("/api/processing/status").get_json()
     assert progress["active"] is False
@@ -224,12 +218,12 @@ def test_pdf_processing_background_exception_is_exposed(isolated_webapp, monkeyp
 
     response = client.post("/api/processing/start", json={"pdf_folder": str(pdf_dir)})
     assert response.status_code == 200
-    isolated_webapp.session["processing_thread"].join(timeout=2)
+    _processing_runtime(isolated_webapp).thread.join(timeout=2)
 
     progress = client.get("/api/processing/status").get_json()
     assert progress["active"] is False
     assert progress["error"] == "background failure"
-    assert any(event["type"] == "processing_error" for event in isolated_webapp.session["progress"])
+    assert any(event["type"] == "processing_error" for event in _processing_runtime(isolated_webapp).progress)
 
     results = client.get("/api/processing/results").get_json()
     assert results["error"] == "background failure"
@@ -272,7 +266,7 @@ def test_pdf_processing_counters_survive_one_failed_pdf_and_one_success(isolated
 
     response = client.post("/api/processing/start", json={"pdf_folder": str(pdf_dir)})
     assert response.status_code == 200
-    isolated_webapp.session["processing_thread"].join(timeout=2)
+    _processing_runtime(isolated_webapp).thread.join(timeout=2)
 
     progress = client.get("/api/progress").get_json()
     assert progress["active"] is False

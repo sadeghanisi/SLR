@@ -35,6 +35,23 @@
     </div>
   </header>
 
+<section class="workspace-bar" aria-label="Workspace">
+    <div class="workspace-bar-inner workspace-bar-compact">
+      <div class="workspace-state">
+        <span class="workspace-mode-pill" id="workspaceModePill">Legacy Mode</span>
+        <span class="workspace-state-label" id="workspaceName">No workspace open</span>
+        <span class="workspace-state-meta" id="workspaceMeta">One-off run, not a persistent review project</span>
+        <span class="workspace-state-meta" id="workspaceReviewTitle">Review title: not saved</span>
+      </div>
+      <div class="workspace-bar-actions">
+        <button class="workspace-btn secondary" id="closeWorkspaceBtn" type="button" title="Close workspace" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          Close workspace
+        </button>
+      </div>
+    </div>
+  </section>
+
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- Stage navigation — mirrors the PRISMA pipeline                     -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -46,17 +63,17 @@
     <span class="stage-arrow">→</span>
     <button class="stage-tab" data-stage="ingest">
       <span class="stage-num">2</span>
-      <span class="stage-label">Ingest</span>
+      <span class="stage-label">Import</span>
     </button>
     <span class="stage-arrow">→</span>
     <button class="stage-tab" data-stage="process">
       <span class="stage-num">3</span>
-      <span class="stage-label">Process</span>
+      <span class="stage-label">PDFs &amp; Processing</span>
     </button>
     <span class="stage-arrow">→</span>
     <button class="stage-tab" data-stage="results">
       <span class="stage-num">4</span>
-      <span class="stage-label">Results</span>
+      <span class="stage-label">Review Queue &amp; Exports</span>
     </button>
   </nav>
 
@@ -64,6 +81,105 @@
   <!-- Main content area                                                  -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <main class="workspace">
+
+<section class="workspace-start" id="workspaceOnboarding" aria-label="Workspace start">
+      <div class="workspace-start-header">
+        <h1>Start a Review Project</h1>
+        <p class="workspace-start-lead">Workspaces save your references, PDFs, AI suggestions, human decisions, exports, and audit history locally on this computer.</p>
+        <p class="workspace-start-lead-sub">You only need to enter a review title. SLR Assistant creates a safe local folder for you — no manual path entry required.</p>
+      </div>
+
+      <div class="workspace-start-actions">
+        <button class="btn btn-primary btn-lg" id="startNewWorkspaceBtn" type="button">+ New Workspace</button>
+        <button class="btn btn-secondary btn-lg" id="startOpenWorkspaceBtn" type="button">Open Existing Workspace</button>
+        <button class="btn btn-secondary btn-lg" id="continueLegacyBtn" type="button">Continue Without Workspace</button>
+      </div>
+
+      <div class="workspace-start-grid">
+        <div class="workspace-start-section">
+          <h2>Create or Open a Workspace</h2>
+          <p>Choose <strong>+ New Workspace</strong> to start a persistent review, or pick a recent workspace below. Workspace Mode keeps everything saved locally for this review project.</p>
+
+          <!-- New workspace form (hidden until "+ New Workspace" clicked) -->
+          <div class="workspace-form" id="newWorkspaceForm" style="display:none">
+            <div class="form-group">
+              <label for="reviewTitleInput">Review title</label>
+              <input type="text" id="reviewTitleInput" class="input-text" placeholder="e.g. AI-assisted screening of cardiovascular outcomes" autocomplete="off">
+            </div>
+            <div class="form-row">
+              <div class="form-group form-half">
+                <label for="reviewTypeSelect">Review type</label>
+                <select id="reviewTypeSelect" class="input-select">
+                  <option value="systematic_review">Systematic review</option>
+                  <option value="scoping_review">Scoping review</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group form-half">
+                <label for="reviewerNameInput">Reviewer name (optional)</label>
+                <input type="text" id="reviewerNameInput" class="input-text" placeholder="Your name" autocomplete="off">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="reviewQuestionInput">Review question (optional)</label>
+              <textarea id="reviewQuestionInput" class="input-textarea" rows="2" placeholder="What question should this review answer?"></textarea>
+            </div>
+            <details class="workspace-advanced">
+              <summary>Advanced location (manual folder path)</summary>
+              <div class="workspace-advanced-body">
+                <p>By default your workspace is saved in <code>SLR Assistant Workspaces</code> inside your home folder. Use this section only if you need a specific folder on this computer.</p>
+                <input type="text" id="workspacePathInput" class="workspace-input" placeholder="Workspace folder path" autocomplete="off" spellcheck="false">
+                <input type="text" id="workspaceNameInput" class="workspace-name-input" placeholder="Workspace name (optional)" autocomplete="off" spellcheck="false">
+              </div>
+            </details>
+            <div class="form-actions">
+              <button class="btn btn-primary" id="createWorkspaceBtn" type="button">Create workspace</button>
+            </div>
+          </div>
+
+          <!-- Open existing: recent cards (shown by default) + advanced manual path -->
+          <div class="workspace-open-area" id="openWorkspaceArea">
+            <h3>Recent Workspaces</h3>
+            <div id="recentWorkspaceCards" class="recent-workspace-cards"></div>
+            <details class="workspace-advanced">
+              <summary>Advanced: choose a folder manually</summary>
+              <div class="workspace-advanced-body">
+                <p>Choose the folder that contains <code>workspace.sqlite3</code> and <code>workspace.json</code>.</p>
+                <input type="text" id="openWorkspacePathInput" class="workspace-input" placeholder="Workspace folder path" autocomplete="off" spellcheck="false">
+                <button class="btn btn-secondary" id="openWorkspaceBtn" type="button">Open workspace</button>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div class="workspace-start-side">
+          <h2>Continue Without Workspace</h2>
+          <p>Use this for a quick one-off run. It is not a persistent review project.</p>
+          <p class="workspace-mode-explain"><strong>Workspace Mode</strong> saves your references, PDFs, AI suggestions, human decisions, exports, and audit history locally on this computer. <strong>Legacy Mode</strong> is a quick one-off run and review progress is not kept as a workspace.</p>
+        </div>
+      </div>
+
+      <div class="workspace-onboarding-note">No workspace is open. Create or open a workspace to save your review progress. Workspace data is stored locally on this computer. SLR Assistant does not replace human reviewers; AI suggestions must be checked before use.</div>
+      <button class="btn btn-sm btn-secondary" id="workspaceOnboardingFocusBtn" type="button" style="display:none">Set up workspace</button>
+      <select id="workspaceRecentSelect" class="workspace-select" style="display:none" aria-hidden="true">
+        <option value="">Recent</option>
+      </select>
+    </section>
+
+    <section class="workspace-progress-panel" id="workspaceProgressPanel" aria-label="Workspace progress" style="display:none">
+      <div class="workspace-progress-header">
+        <div>
+          <h2>Workspace Progress</h2>
+          <p id="workspaceProgressHelp">Persistent project counts from the local workspace database.</p>
+        </div>
+        <span class="workspace-local-pill">Saved locally</span>
+      </div>
+      <div class="workspace-progress-grid" id="workspaceProgressGrid"></div>
+      <div class="workspace-empty-list" id="workspaceProgressEmptyStates"></div>
+      <div class="workspace-progress-copy">
+        Workspace data is stored locally on this computer. PDF-only records were created from PDFs without imported reference metadata. They are usable in the review queue and counted separately from imported database/reference records.
+      </div>
+    </section>
 
     <!-- ─── Stage 1: Configure ─────────────────────────────────────── -->
     <section class="stage active" id="stage-configure">
@@ -155,11 +271,16 @@
             <h3>Parse & Deduplicate</h3>
           </div>
           <div class="pipe-step-body">
-            <div class="action-bar">
+<div class="action-bar">
               <button class="btn btn-secondary" id="parseBtn" disabled>Parse File</button>
               <button class="btn btn-secondary" id="dedupBtn" disabled>Deduplicate</button>
             </div>
             <div class="stats-row" id="parseStats"></div>
+            <div class="import-summary-panel" id="importSummaryPanel" style="display:none"></div>
+            <div class="empty-state empty-state-inline" id="refEmptyState">
+              <h3>No references imported</h3>
+              <p>Upload a reference export file (.ris, .bib, or .csv) from a database, then parse it to start screening.</p>
+            </div>
           </div>
         </div>
 
@@ -210,7 +331,17 @@
             <button class="btn btn-sm btn-secondary" id="exportScreeningBtn">Export Results</button>
           </div>
         </div>
-        <div class="table-wrap">
+        <div class="ref-list-toolbar">
+          <input type="text" id="refSearchInput" class="input-text input-sm" placeholder="Search title, authors, year, DOI…">
+          <select id="refPageSize" class="input-select input-sm" aria-label="Rows per page">
+            <option value="25">25 rows</option>
+            <option value="50" selected>50 rows</option>
+            <option value="100">100 rows</option>
+          </select>
+          <button class="btn btn-sm btn-secondary" id="refClearFilterBtn" type="button">Clear filter</button>
+          <span class="ref-list-showing" id="refShowing">Showing 0 of 0 records</span>
+        </div>
+        <div class="table-wrap ref-table-wrap">
           <table class="data-table" id="refTable">
             <thead>
               <tr>
@@ -224,6 +355,11 @@
             </thead>
             <tbody id="refTableBody"></tbody>
           </table>
+        </div>
+        <div class="ref-list-pager">
+          <button class="btn btn-sm btn-secondary" id="refPrevPageBtn" type="button">‹ Prev</button>
+          <span id="refPageInfo" class="ref-list-page-info">Page 1</span>
+          <button class="btn btn-sm btn-secondary" id="refNextPageBtn" type="button">Next ›</button>
         </div>
       </div>
     </section>
@@ -245,6 +381,10 @@
             <input type="file" id="pdfFileInput" accept=".pdf" multiple hidden>
           </div>
           <div class="upload-status" id="pdfUploadStatus"></div>
+          <div class="empty-state empty-state-inline" id="pdfEmptyState">
+            <h3>No PDFs uploaded</h3>
+            <p>Upload full-text PDFs here to run full-text screening and extraction.</p>
+          </div>
         </div>
 
         <div class="card">
@@ -408,27 +548,104 @@
         <p class="stage-desc">Inspect screening decisions and extracted data, then export.</p>
       </div>
 
-      <!-- PRISMA summary -->
-      <div class="prisma-summary" id="prismaSummary">
-        <div class="prisma-node">
-          <span class="prisma-count" id="prismaIdentified">—</span>
-          <span class="prisma-label">Identified</span>
+      <!-- AI processing run summary -->
+      <div class="processing-summary-copy">
+        <h2>AI processing run summary</h2>
+        <p>These counts describe the current AI-assisted processing run. They are not PRISMA-ready human-final counts.</p>
+      </div>
+      <div class="processing-run-summary" id="processingRunSummary">
+        <div class="processing-node">
+          <span class="processing-count" id="processingIdentified">—</span>
+          <span class="processing-label">Identified</span>
         </div>
-        <span class="prisma-arrow">↓</span>
-        <div class="prisma-node">
-          <span class="prisma-count" id="prismaScreened">—</span>
-          <span class="prisma-label">Screened</span>
+        <span class="processing-arrow">↓</span>
+        <div class="processing-node">
+          <span class="processing-count" id="processingScreened">—</span>
+          <span class="processing-label">Screened</span>
         </div>
-        <span class="prisma-arrow">↓</span>
-        <div class="prisma-node prisma-include">
-          <span class="prisma-count" id="prismaIncluded">—</span>
-          <span class="prisma-label">Included</span>
+        <span class="processing-arrow">↓</span>
+        <div class="processing-node processing-include">
+          <span class="processing-count" id="processingIncluded">—</span>
+          <span class="processing-label">Included</span>
         </div>
-        <span class="prisma-arrow-side">→</span>
-        <div class="prisma-node prisma-exclude">
-          <span class="prisma-count" id="prismaExcluded">—</span>
-          <span class="prisma-label">Excluded</span>
+        <span class="processing-arrow-side">→</span>
+        <div class="processing-node processing-exclude">
+          <span class="processing-count" id="processingExcluded">—</span>
+          <span class="processing-label">Excluded</span>
         </div>
+      </div>
+
+      <!-- Workspace human review queue -->
+      <div class="card workspace-review-card" id="workspaceReviewCard" style="display:none">
+        <div class="card-header-row">
+          <div>
+            <h2 class="card-title">Workspace Review Queue</h2>
+            <div class="review-summary-chips" id="reviewSummaryChips"></div>
+            <p class="review-helper-copy">AI suggestions are not final. Use human decisions to finalize include, exclude, or maybe status. Full-text exclusions should include a reason.</p>
+          </div>
+          <div class="filter-row">
+            <select id="reviewStageFilter" class="input-select input-sm" aria-label="Review stage filter">
+              <option value="">All stages</option>
+              <option value="title_abstract">Title/abstract</option>
+              <option value="full_text">Full text</option>
+            </select>
+            <select id="reviewStatusFilter" class="input-select input-sm" aria-label="Review status filter">
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="suggested">Suggested</option>
+              <option value="included">Included</option>
+              <option value="excluded">Excluded</option>
+              <option value="maybe">Maybe</option>
+              <option value="failed">Failed</option>
+            </select>
+            <select id="reviewOriginFilter" class="input-select input-sm" aria-label="Record origin filter">
+              <option value="">All origins</option>
+              <option value="imported_reference">Imported references</option>
+              <option value="pdf_only">PDF-only records</option>
+              <option value="manual">Manual records</option>
+            </select>
+            <button class="btn btn-sm btn-secondary" id="clearReviewFiltersBtn" type="button">Clear filters</button>
+            <button class="btn btn-sm btn-secondary" id="showAllReviewItemsBtn" type="button">Show all</button>
+            <button class="btn btn-sm btn-secondary" id="refreshReviewQueueBtn" type="button">Refresh</button>
+          </div>
+        </div>
+<div class="review-queue-context" id="reviewQueueContext">
+          <div class="review-queue-meta" id="reviewQueueMeta"></div>
+          <div class="review-queue-explanation" id="reviewQueueExplanation"></div>
+          <div class="review-queue-showing" id="reviewQueueShowing">Showing 0 of 0 review items</div>
+        </div>
+        <div class="table-wrap review-table-wrap">
+          <table class="data-table review-table" id="reviewQueueTable">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Stage</th>
+                <th>Status</th>
+                <th>AI suggestion (not final)</th>
+                <th>Human final decision</th>
+                <th>Decision</th>
+              </tr>
+            </thead>
+            <tbody id="reviewQueueBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Workspace exports -->
+      <div class="card workspace-export-card" id="workspaceExportCard" style="display:none">
+        <div class="card-header-row">
+          <div>
+            <h2 class="card-title">Workspace Exports</h2>
+            <p class="review-helper-copy">PRISMA-ready counts are derived from workspace data and should be checked before reporting.</p>
+            <p class="review-helper-copy">AI-only suggestions are not final decisions.</p>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-sm btn-primary" id="generateWorkspaceExportsBtn" type="button">Generate workspace exports</button>
+            <button class="btn btn-sm btn-secondary" id="refreshWorkspaceExportsBtn" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="workspace-export-meta" id="workspaceExportMeta">No workspace export generated yet.</div>
+        <div class="workspace-export-files" id="workspaceExportFiles"></div>
       </div>
 
       <!-- Results tabs -->
@@ -510,7 +727,7 @@
   <footer class="appfooter">
     <span>SLR Assistant {{ version_tag }}</span>
     <span class="footer-sep">·</span>
-    <span>By <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" class="footer-link">Mo Anisi</a></span>
+    <span>By <a href="https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/" target="_blank" rel="noopener" class="footer-link">Farahnaz Yazdanpanah Faragheh</a></span>
     <span class="footer-sep">·</span>
     <a href="https://opensource.org/license/mit" target="_blank" rel="noopener" class="footer-link">MIT License</a>
     <span class="footer-sep">·</span>
@@ -770,10 +987,10 @@
         <!-- ── Stage 4: Results ──────────────────────────────────── -->
         <section class="help-topic" id="htopic-results">
           <h3>Stage 4 · Results &amp; Export</h3>
-          <p class="help-lead">Review AI decisions and export data for your PRISMA diagram and report.</p>
+          <p class="help-lead">Review AI-assisted processing results and prepare data for human-verified reporting.</p>
 
-          <h4>PRISMA Summary</h4>
-          <p>The header shows counts for: Identified → Screened → Included / Excluded — matching the standard PRISMA flow diagram format.</p>
+          <h4>AI Processing Run Summary</h4>
+          <p>These counts describe the current AI-assisted processing run. They are not PRISMA-ready human-final counts.</p>
 
           <h4>Screening Results</h4>
           <table class="help-table">

@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SLR Assistant — Local-First AI Tool for Systematic and Scoping Reviews</title>
-  <meta name="description" content="Local-first, open-source AI-assisted review tool for screening, extraction, desktop GUI, and local WebApp workflows." />
+  <meta name="description" content="Local-first, open-source AI-assisted review tool for workspace-based screening, human decisions, workspace reporting exports, extraction, desktop GUI, and local WebApp workflows." />
   <link rel="canonical" href="https://sadeghanisi.github.io/SLR/" />
 
   <!-- Open Graph -->
   <meta property="og:title" content="SLR Assistant — Local-First AI Tool for Systematic and Scoping Reviews" />
-  <meta property="og:description" content="Open-source AI-assisted workflow for systematic and scoping reviews: reference ingestion, screening, extraction, desktop GUI, and local WebApp." />
+  <meta property="og:description" content="Open-source AI-assisted workflow for systematic and scoping reviews: workspace mode, reference ingestion, screening, human decisions, workspace reporting exports, extraction, desktop GUI, and local WebApp." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://sadeghanisi.github.io/SLR/" />
   <meta property="og:image" content="https://sadeghanisi.github.io/SLR/og-preview.png" />
@@ -18,7 +18,7 @@
   <!-- Twitter / X -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="SLR Assistant — Local-First AI Tool for Reviews" />
-  <meta name="twitter:description" content="Open-source AI-assisted systematic/scoping review workflow with desktop GUI, local WebApp, screening, extraction, and auditability." />
+  <meta name="twitter:description" content="Open-source AI-assisted systematic/scoping review workflow with workspace mode, local WebApp, screening, human decisions, workspace reporting exports, extraction, and auditability." />
   <meta name="twitter:image" content="https://sadeghanisi.github.io/SLR/og-preview.png" />
 
   <script type="application/ld+json">
@@ -32,12 +32,12 @@
         "alternateName": "Universal SLR Automation Tool",
         "applicationCategory": "Research software",
         "operatingSystem": "Windows, macOS, Linux",
-        "softwareVersion": "3.4.0-rc.1",
+        "softwareVersion": "3.5.2",
         "license": "https://github.com/sadeghanisi/SLR/blob/main/LICENSE",
         "author": { "@id": "https://sadeghanisi.github.io/SLR/#author" },
         "codeRepository": "https://github.com/sadeghanisi/SLR",
         "url": "https://sadeghanisi.github.io/SLR/",
-        "description": "Local-first, open-source, AI-assisted software for systematic and scoping review workflows with reference ingestion, screening, PDF processing, structured extraction, and auditability.",
+        "description": "Local-first, open-source, AI-assisted software for systematic and scoping review workflows with workspace mode, reference ingestion, screening, human decisions, workspace reporting exports, PDF processing, structured extraction, and auditability.",
         "keywords": "systematic literature review, scoping review, AI-assisted screening, LLM, PRISMA-aligned workflow, research software",
         "offers": {
           "@type": "Offer",
@@ -57,8 +57,8 @@
       {
         "@type": "Person",
         "@id": "https://sadeghanisi.github.io/SLR/#author",
-        "name": "Mo Anisi",
-        "url": "https://www.linkedin.com/in/manisi/"
+        "name": "Farahnaz Yazdanpanah Faragheh",
+        "url": "https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/"
       }
     ]
   }
@@ -110,12 +110,14 @@
   <div class="container hero-inner">
     <div class="hero-text">
       <div class="ascii-border">╔══════════════════════════════════════════════════╗</div>
-      <span class="badge blink-slow">[ v3.4.0-rc.1 // OPEN SOURCE // LOCAL-FIRST ]</span>
+      <span class="badge blink-slow">[ v3.5.2 // OPEN SOURCE // LOCAL-FIRST ]</span>
       <h1 class="glitch" data-text="AI-ASSISTED LITERATURE REVIEW">AI-ASSISTED<br>LITERATURE REVIEW</h1>
       <p class="hero-sub">
         <span class="typed-prefix">&gt;</span> Import references. Deduplicate. Screen abstracts.<br>
         <span class="typed-prefix">&gt;</span> Process PDFs. Extract structured data.<br>
         <span class="typed-prefix">&gt;</span> Native providers + OpenAI-compatible profiles.<br>
+        <span class="typed-prefix">&gt;</span> Workspace mode persists AI suggestions and human decisions.<br>
+        <span class="typed-prefix">&gt;</span> Origin-aware counts distinguish imports from PDF-only records.<br>
         <span class="typed-prefix">&gt;</span> Desktop GUI &amp; browser Web App included.<br>
         <span class="typed-prefix">&gt;</span> Config-aware cache + JSONL audit ledger.<br>
         <span class="typed-prefix">&gt;</span> One local-first workflow. Human verification stays in control.<span class="cursor">█</span>
@@ -162,7 +164,7 @@
     <div class="intro-grid">
       <article class="intro-card">
         <h3>WHAT IT DOES</h3>
-        <p>Assists repetitive review tasks: importing references, identifying likely duplicates, screening titles/abstracts, processing PDFs, extracting structured fields, and exporting auditable outputs.</p>
+        <p>Assists repetitive review tasks: importing references, identifying likely duplicates, screening titles/abstracts, processing PDFs, recording human decisions in a local workspace, extracting structured fields, and exporting auditable outputs.</p>
       </article>
       <article class="intro-card">
         <h3>WHO IT IS FOR</h3>
@@ -170,7 +172,7 @@
       </article>
       <article class="intro-card">
         <h3>WHAT IT IS NOT</h3>
-        <p>Not a replacement for human reviewers, not a public cloud service, not a guarantee of PRISMA compliance, and not a clinical or policy decision system.</p>
+        <p>Not a replacement for human reviewers, not a public cloud service, not a multi-user SaaS platform, not a guarantee of PRISMA compliance, and not a clinical or policy decision system.</p>
       </article>
     </div>
   </div>
@@ -233,6 +235,18 @@
       </div>
 
       <div class="feature-card">
+        <div class="feature-icon">WS</div>
+        <h3>WORKSPACE MODE</h3>
+        <p>Local project folders persist imports, PDF metadata, records, review items, decisions, and audit events in SQLite, with clear Workspace Mode versus Legacy Mode labels.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">HR</div>
+        <h3>HUMAN REVIEW QUEUE</h3>
+        <p>AI output is stored as a suggestion; final Include / Exclude / Maybe status is saved as a human decision. Queue filters show visible versus total review items.</p>
+      </div>
+
+      <div class="feature-card">
         <div class="feature-icon">PDF</div>
         <h3>PDF PROCESSING</h3>
         <p>Uses a multi-engine PDF extraction cascade for many common PDF formats, with extraction status recorded.</p>
@@ -259,7 +273,13 @@
       <div class="feature-card">
         <div class="feature-icon">XL</div>
         <h3>RICH OUTPUT</h3>
-        <p>Export structured tables for review, verification, and reporting in Excel, CSV, and summary files.</p>
+        <p>Export structured tables for review, verification, workspace reporting data, PRISMA-ready counts, and methods disclosure.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">PR</div>
+        <h3>WORKSPACE REPORTING</h3>
+        <p>Workspace exports include decision CSV/XLSX files, AI and human decision logs, full-text exclusion reasons, PRISMA-ready counts, and a manifest.</p>
       </div>
 
       <div class="feature-card">
@@ -270,8 +290,8 @@
 
       <div class="feature-card" style="border-color:#f59e0b;box-shadow:0 0 12px rgba(245,158,11,0.25)">
         <div class="feature-icon" style="color:#f59e0b">WEB</div>
-        <h3 style="color:#f59e0b">WEB APP <span style="font-size:0.6rem;background:#f59e0b;color:#000;padding:1px 5px;border-radius:2px;vertical-align:middle">v3.4.0-rc.1</span></h3>
-        <p>Browser-based local interface after Python setup. No separate desktop GUI required.</p>
+        <h3 style="color:#f59e0b">WEB APP <span style="font-size:0.6rem;background:#f59e0b;color:#000;padding:1px 5px;border-radius:2px;vertical-align:middle">v3.5.2</span></h3>
+        <p>Browser-based local interface with Workspace create/open/close, PDF upload, progress counts, review queue, workspace exports, and local-only server binding.</p>
       </div>
 
       <div class="feature-card">
@@ -575,6 +595,8 @@ python app.py
         <div>
           <div style="color:#f59e0b;font-weight:bold;margin-bottom:6px;">&gt; WHAT YOU GET</div>
           <div>[OK] 4-stage PRISMA-aligned workflow in browser</div>
+          <div>[OK] Workspace reporting exports</div>
+          <div>[OK] PRISMA-ready counts for checking</div>
           <div>[OK] AI-assisted criteria drafting</div>
           <div>[OK] PDF upload, view &amp; manager</div>
           <div>[OK] Real-time processing monitor</div>
@@ -666,13 +688,18 @@ python app.py
       </details>
 
       <details class="faq-item">
+        <summary><span>&gt; Why does the review queue show fewer records than I imported?</span></summary>
+        <p>The queue may be filtered by stage, status, or record origin. For example, 900 imported references can show only 5 visible rows when Status is Suggested or Origin is PDF-only. Clear filters to show all review items.</p>
+      </details>
+
+      <details class="faq-item">
         <summary><span>&gt; Can I use this for my thesis?</span></summary>
-        <p>Yes, as an AI-assisted workflow. It supports PRISMA-aligned reporting, but you remain responsible for final inclusion/exclusion decisions, extracted-data verification, and methods disclosure.</p>
+        <p>Yes, as an AI-assisted workflow. Workspace exports can generate PRISMA-ready counts and methods disclosure text, but you remain responsible for checking counts, final inclusion/exclusion decisions, extracted-data verification, and reporting.</p>
       </details>
 
       <details class="faq-item">
         <summary><span>&gt; What file formats are supported?</span></summary>
-        <p>INPUT: RIS, BibTeX (.bib), CSV, PDF &bull; OUTPUT: Excel (.xlsx) colour-coded, CSV, plain-text summary reports.</p>
+        <p>INPUT: RIS, BibTeX (.bib), CSV, PDF &bull; OUTPUT: Excel (.xlsx), CSV, JSON, Markdown methods disclosure, plain-text summary reports, and workspace export manifests.</p>
       </details>
 
       <details class="faq-item">
@@ -691,10 +718,10 @@ python app.py
   <div class="container" style="text-align:center;">
     <h2 class="section-title">&lt; DEVELOPER /&gt;</h2>
     <p style="font-size:1.1rem;margin:8px 0 4px;color:#e0e0e0;">
-      <strong style="color:#00ff9f;">Mo Anisi</strong>
+      <strong style="color:#00ff9f;">Farahnaz Yazdanpanah Faragheh</strong>
     </p>
     <div style="margin-top:14px;display:flex;justify-content:center;gap:16px;flex-wrap:wrap;">
-      <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener"
+      <a href="https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/" target="_blank" rel="noopener"
          class="btn btn-outline btn-sm" style="border-color:#0077b5;color:#0077b5;">
         &gt; LINKEDIN
       </a>
@@ -774,7 +801,7 @@ python app.py
       </a>
     </div>
     <p class="cta-sub">
-      v3.4.0-rc.1 &bull; MIT License &bull; Python 3.10+ &bull; WIN / MAC / LINUX
+      v3.5.2 &bull; MIT License &bull; Python 3.10+ &bull; WIN / MAC / LINUX
     </p>
   </div>
 </section>
@@ -787,15 +814,15 @@ python app.py
 <footer class="footer">
   <div class="container footer-inner">
     <div class="footer-left">
-      <span class="logo-icon">&gt;_</span> <strong>SLR_ASSISTANT</strong> v3.4.0-rc.1
-      <p>&copy; 2025&ndash;2026 <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener" style="color:inherit;">Mo Anisi</a> // MIT License // Local-first research software</p>
+      <span class="logo-icon">&gt;_</span> <strong>SLR_ASSISTANT</strong> v3.5.2
+      <p>&copy; 2025&ndash;2026 <a href="https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/" target="_blank" rel="noopener" style="color:inherit;">Farahnaz Yazdanpanah Faragheh</a> // MIT License // Local-first research software</p>
     </div>
     <div class="footer-links">
       <a href="https://github.com/sadeghanisi/SLR" target="_blank" rel="noopener">[GITHUB]</a>
       <a href="https://github.com/sadeghanisi/SLR/blob/main/COMPLETE_USER_GUIDE.md" target="_blank" rel="noopener">[GUIDE]</a>
       <a href="https://github.com/sadeghanisi/SLR/issues" target="_blank" rel="noopener">[ISSUES]</a>
       <a href="https://github.com/sadeghanisi/SLR/blob/main/LICENSE" target="_blank" rel="noopener">[LICENSE]</a>
-      <a href="https://www.linkedin.com/in/manisi/" target="_blank" rel="noopener">[LINKEDIN]</a>
+      <a href="https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/" target="_blank" rel="noopener">[LINKEDIN]</a>
     </div>
   </div>
 </footer>

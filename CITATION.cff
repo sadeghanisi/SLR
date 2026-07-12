@@ -6,10 +6,14 @@ authors:
   - family-names: Anisi
     given-names: Mohammad Sadegh
     orcid: https://orcid.org/0009-0007-7249-2891
+  - family-names: Yazdanpanah Faragheh
+    given-names: Farahnaz
+    orcid: https://orcid.org/0009-0003-6144-3796
+    affiliation: University of Surrey
 repository-code: https://github.com/sadeghanisi/SLR
 license: MIT
-version: 3.4.0-rc.1
-date-released: 2026-07-05
+version: 3.5.2
+date-released: 2026-07-12
 abstract: Local-first, AI-assisted tool for systematic and scoping review workflows.
 keywords:
   - systematic literature review

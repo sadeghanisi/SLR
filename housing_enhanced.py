@@ -176,7 +176,7 @@ def _parse_json_response(raw: str) -> Dict:
     return {
         "decision": ScreeningDecision.FLAG_FOR_HUMAN.value,
         "reasoning": "Could not parse LLM response as JSON.",
-        "notes": f"Raw response (first 600 chars): {raw[:600]}"
+        "notes": "Malformed LLM response; raw response content was not stored."
     }
 
 
@@ -191,6 +191,9 @@ class SystematicReviewAutomation:
         api_key:              str,
         pdf_folder:           str,
         output_folder:        str  = "output",
+        cache_folder:         str  = None,
+        text_cache_folder:    str  = None,
+        audit_ledger:         str  = None,
         cache_enabled:        bool = True,
         parallel_processing:  bool = True,
         max_workers:          int  = 3,
@@ -267,11 +270,11 @@ class SystematicReviewAutomation:
         self.llm_manager = self._init_llm()
 
         # Cache
-        self.cache_folder = self.output_folder / 'cache'
+        self.cache_folder = Path(cache_folder) if cache_folder else self.output_folder / 'cache'
         if self.cache_enabled:
-            self.cache_folder.mkdir(exist_ok=True)
-        self.text_cache_folder = self.output_folder / 'text_cache'
-        self.text_cache_folder.mkdir(exist_ok=True)
+            self.cache_folder.mkdir(parents=True, exist_ok=True)
+        self.text_cache_folder = Path(text_cache_folder) if text_cache_folder else self.output_folder / 'text_cache'
+        self.text_cache_folder.mkdir(parents=True, exist_ok=True)
 
         # Timestamped output files
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -280,7 +283,8 @@ class SystematicReviewAutomation:
         self.screening_excel  = self.output_folder / f"screening_{ts}.xlsx"
         self.extraction_excel = self.output_folder / f"extraction_{ts}.xlsx"
         self.summary_report   = self.output_folder / f"summary_{ts}.txt"
-        self.audit_ledger     = self.output_folder / f"audit_{ts}.jsonl"
+        self.audit_ledger     = Path(audit_ledger) if audit_ledger else self.output_folder / f"audit_{ts}.jsonl"
+        self.audit_ledger.parent.mkdir(parents=True, exist_ok=True)
 
         # Results
         self.screening_results:  List[ScreeningResult]  = []

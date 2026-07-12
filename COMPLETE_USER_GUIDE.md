@@ -51,9 +51,10 @@ This tool uses **Artificial Intelligence** to assist with the most time-consumin
 - **Screening**: It reads each paper and suggests whether it appears to meet your inclusion criteria.
 - **Data Extraction**: It creates a first draft of the specific information you need (study design, sample size, outcomes, etc.).
 - **Deduplication**: It removes duplicate papers that came from different databases.
-- **Export**: It generates clean Excel and CSV files ready for your PRISMA flow diagram and final report.
+- **Export**: It generates clean Excel and CSV files for review, plus Workspace Mode reporting exports with PRISMA-ready counts and methods disclosure text.
+- **Workspace Mode**: In the Web App, it can save references, PDF metadata, AI suggestions, human decisions, and audit events inside a local project folder.
 
-**You remain in control.** The AI assists you; it does not replace your academic judgment. You can review, override, and adjust every decision the AI makes.
+**You remain in control.** The AI assists you; it does not replace your academic judgment. In Workspace mode, an AI include/exclude result is only a suggestion. Final Include, Exclude, or Maybe status requires a human decision.
 
 ### Who Is This Tool For?
 
@@ -112,7 +113,7 @@ You choose the model inside the tool. You can also type any model ID manually, i
 
 ### What Is PRISMA?
 
-**PRISMA** (Preferred Reporting Items for Systematic Reviews and Meta-Analyses) is an international standard for reporting systematic reviews. It defines a flow diagram showing how many papers you found, removed as duplicates, screened, and included. This tool supports PRISMA-aligned workflows and generates useful counts and exports, but you remain responsible for final PRISMA reporting and methodological integrity.
+**PRISMA** (Preferred Reporting Items for Systematic Reviews and Meta-Analyses) is an international standard for reporting systematic reviews. It defines a flow diagram showing how many papers you found, removed as duplicates, screened, and included. This tool supports PRISMA-aligned workflows and can generate PRISMA-ready counts from workspace data, but you remain responsible for checking those counts and for final PRISMA reporting and methodological integrity.
 
 ---
 
@@ -852,7 +853,9 @@ For papers marked "Include", the extraction file shows all the fields you define
 Go to the **Results** tab to see a summary table of decisions inside the application. You can:
 - Filter by decision type.
 - Click a row to see the full reasoning.
-- Override decisions directly in the application.
+- In Web App Workspace mode, review AI suggestions separately from the human final decision.
+- Save human Include / Exclude / Maybe decisions with a rationale.
+- For full-text Exclude decisions in Workspace mode, choose an exclusion reason.
 - Export filtered results.
 
 ### Understanding the Processing Summary
@@ -1024,10 +1027,10 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 ### Web App counters, results, or exports look wrong
 
-**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.4.0-rc.1` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
+**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.5.2` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
 
 **Solution**:
-1. Confirm you are running version `3.4.0-rc.1` or newer.
+1. Confirm you are running version `3.5.2` or newer.
 2. Refresh the browser page and open the Results stage again.
 3. Check the server terminal and `slr_automation.log` for report-generation warnings.
 4. If exports are missing, check the output folder for the generated `.xlsx`, `.csv`, summary, and audit files.
@@ -1087,6 +1090,8 @@ A: Yes. This tool supports PRISMA-aligned workflows, but you still need to:
 - Justify your inclusion/exclusion criteria.
 - Report that AI-assisted screening was used and describe how.
 - Ensure final PRISMA reporting and methodological integrity yourself.
+
+In Workspace Mode, use **Generate workspace exports** to create PRISMA-ready counts and a conservative `methods_disclosure.md` draft. Check these outputs against your protocol, search logs, and final human decisions before reporting.
 
 ---
 
@@ -1169,6 +1174,8 @@ These shortcuts work when the application window is in focus:
 
 **Abstract**: A short summary (usually 150–300 words) at the beginning of a research paper. In PRISMA, you first screen abstracts before reading full papers.
 
+**AI Suggestion**: A recommendation produced by the AI, such as include or exclude. In Workspace mode this is not final until a human reviewer accepts or overrides it.
+
 **API (Application Programming Interface)**: A communication channel that allows this tool to send your papers to an AI service over the internet and receive results.
 
 **API Key**: A unique password/identifier that connects your account to an AI provider. Keep it confidential.
@@ -1185,9 +1192,21 @@ These shortcuts work when the application window is in focus:
 
 **Extraction**: Pulling specific information from papers (e.g., sample size, methods, findings) and recording it in a structured format.
 
+**Human Decision**: The final Include, Exclude, or Maybe status saved by a researcher in the Workspace review queue.
+
+**Imported Reference Record**: A workspace record created by parsing a reference file such as RIS, BibTeX, CSV, or text. In the workspace database this uses `record_origin = imported_reference`.
+
+**Manual Record**: A workspace record origin reserved for future manually created records. Manual record entry is not implemented yet.
+
+**Methods Disclosure**: A generated Markdown file in the workspace export bundle that summarizes local-first use, imported sources, deduplication, record origins, AI provider/model metadata where available, AI-suggestion wording, human-final decision wording, full-text exclusion reason handling, timestamp, and limitations.
+
 **PICO / PICOS**: A framework for defining systematic review research questions: Population, Intervention, Comparison, Outcome, (Study design). Commonly used to derive inclusion/exclusion criteria.
 
+**PDF-only Record**: A workspace record created from an uploaded PDF when no imported reference metadata is linked to that PDF. PDF-only records can be reviewed, but they are counted separately from imported reference records.
+
 **PRISMA**: Preferred Reporting Items for Systematic Reviews and Meta-Analyses. An international standard workflow and reporting checklist for systematic reviews.
+
+**PRISMA-ready Counts**: Workspace database counts prepared for checking and reporting, such as imported records, active unique records, duplicates hidden from active screening, human included/excluded decisions, AI-only unfinalized suggestions, and full-text exclusions by reason. They still require human checking.
 
 **Provider**: An AI company whose AI models this tool connects to (OpenAI, Anthropic, DeepSeek, Mistral, Google, Ollama).
 
@@ -1213,9 +1232,11 @@ These shortcuts work when the application window is in focus:
 
 **Temperature**: A setting that controls how predictable vs. creative an AI's responses are. For systematic reviews, use a very low temperature (close to 0) so results are consistent and reproducible.
 
+**Workspace**: A local project folder containing `workspace.sqlite3`, `workspace.json`, and subfolders for imports, PDFs, exports, cache, and audit files.
+
 ---
 
-*This guide covers the tool's full functionality as of version 3.4.0-rc.1*
+*This guide covers the tool's full functionality as of version 3.5.2*
 
 *For systematic reviews, always consult your institution's research methods guidance and report AI-assisted screening transparently in your methods section.*
 
@@ -1225,7 +1246,7 @@ These shortcuts work when the application window is in focus:
 
 The SLR Assistant includes a **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI. Everything runs locally in your browser and on a Flask server bound to `127.0.0.1` on your own computer. It is not intended for public deployment, shared servers, or multi-user hosting.
 
-Version `3.4.0-rc.1` fixes stale WebApp PDF counters/results/report visibility that could previously make processing appear complete without reliably updating included/excluded/flagged counts or report links.
+Version `3.5.2` adds a redesigned Workspace start screen and navigation, a persistent human review queue foundation, AI suggestions treated as non-final, human Include / Exclude / Maybe decisions as final, reference-list search and pagination, recent workspace cards, and workspace export bundles with PRISMA-ready counts and a methods disclosure draft generated from the workspace database. AI results are stored as suggestions; human decisions are stored separately as final decisions. The Web App also labels Workspace Mode versus Legacy Mode and explains filtered queue counts so large imports are not confused with small filtered review views.
 
 ### What Is Different About the Web App?
 
@@ -1235,6 +1256,8 @@ Version `3.4.0-rc.1` fixes stale WebApp PDF counters/results/report visibility t
 | Launch | `python slr_gui.py` | `python app.py` then open browser |
 | Workflow | Tab-based | 4-stage pipeline |
 | AI Enhance | Not available | One-click criteria improvement |
+| Workspace mode | Not changed | Local project folder with SQLite state |
+| Human review queue | Not changed | Persistent AI suggestions and human decisions |
 | PDF Manager | Folder picker | Upload + list + view + delete |
 | Help | In-app Help tab | Slide-in guide drawer (9 topics) |
 | Settings persistence | JSON file | JSON file (auto-save) |
@@ -1268,7 +1291,54 @@ You should see the SLR Assistant web interface load in your browser. Keep the te
 
 Do not expose this local Flask app to the public internet or run it as a shared team server. It is designed for one researcher at a time on the same computer.
 
-### 20.2 The Four Stages
+### 20.2 Workspace Mode
+
+Workspace mode lets the Web App behave more like a project-based research workflow instead of a single temporary run.
+
+At the top of the Web App, use the workspace bar to:
+- **Create** a new workspace folder.
+- **Open** an existing workspace folder.
+- Reopen a workspace from the **Recent** list.
+- **Close** the workspace and return to legacy run-based behavior.
+
+The Web App now labels the current mode clearly:
+- **Workspace Mode - saved locally**: recommended for systematic and scoping reviews. References, PDFs, AI suggestions, human decisions, and audit events are saved in the local workspace.
+- **Legacy Mode - one-off run**: useful for quick processing, but not a persistent review project.
+
+A workspace folder contains:
+
+```text
+workspace_name/
+├── workspace.sqlite3
+├── workspace.json
+├── imports/
+├── pdfs/
+├── exports/
+├── cache/
+└── audit/
+```
+
+In workspace mode:
+- Uploaded reference files are copied into `imports/`.
+- Parsed reference records are saved in `workspace.sqlite3`.
+- Uploaded PDFs are stored in `pdfs/`.
+- PDF metadata is saved with original filename, display name, relative path, size, and hash when available.
+- Records are counted by origin:
+  - `imported_reference`: records parsed from RIS, BibTeX, CSV, or text reference imports.
+  - `pdf_only`: records created from PDFs that do not yet have imported reference metadata.
+  - `manual`: reserved for future manual record creation.
+- AI screening outputs are saved as suggestions.
+- Human Include / Exclude / Maybe decisions are saved separately.
+- Workspace exports are generated under `exports/<export_id>/` and use workspace-relative paths.
+- Workspace audit events record non-secret actions.
+
+The workspace database does **not** store API keys, full prompts, raw provider request bodies, or full paper text. Paths stored in the database are relative to the workspace folder.
+
+If no workspace is open, the Web App keeps its legacy run-based behavior.
+
+When a workspace is open, a progress panel shows persistent database counts: sources imported, imported reference records, PDF-only records, manual records, total records, PDFs uploaded, review items, AI suggestions, human decisions, pending items, and included/excluded/maybe decisions.
+
+### 20.3 The Four Stages
 
 The web app organises the full review workflow into four sequential stages, accessible by clicking the tabs at the top of the page.
 
@@ -1302,11 +1372,14 @@ Drag the file onto the upload zone, or click to browse.
 - **Parse File**: Extracts title, authors, year, abstract, DOI from the file. A chip shows how many records were found.
 - **Deduplicate**: Removes duplicates in two passes — exact DOI matches first, then fuzzy title matching (≥ 90% similarity). The chip shows how many were removed and how many unique records remain.
 
+After parsing or deduplication, the Web App shows an import summary with the imported file name, records imported, duplicate count if deduplication has been run, records kept after deduplication, source count, and a suggested next action.
+
 **Step C — AI Abstract Screening (optional)**
 
 1. Write your **Screening Criteria** in the text area (inclusion and exclusion rules). Click **Enhance** to have the AI improve and restructure your criteria automatically.
 2. Click **Screen Abstracts** to begin. The AI reads each abstract and returns a decision.
 3. You can stop and restart at any time. Results appear in the table below as they arrive.
+4. If a workspace is open, each AI result is saved as a suggestion in the workspace review queue. It is not a final human decision.
 
 **Screening decisions:**
 - **Likely Include** — abstract meets your criteria
@@ -1344,13 +1417,15 @@ Both text areas have an **Enhance** button that sends the current text to your A
 
 Click **Start Processing** to begin. The **Processing Monitor** shows live progress, counts by decision, files per minute, token usage, and a timestamped log.
 
+If a workspace is open, full-text screening results are also saved as AI suggestions in the workspace review queue.
+
 #### Stage 4 — Results & Export
 
 After processing, go to Stage 4 to review and export your results.
 
-**PRISMA-Aligned Summary**
+**AI Processing Run Summary**
 
-Counts at the top show identified, screened, included, excluded, flagged, and failed records. These support PRISMA-aligned reporting, but you remain responsible for final PRISMA reporting.
+Counts at the top show identified, screened, included, excluded, flagged, and failed records for the current AI-assisted processing run. These are not human-final PRISMA-ready counts.
 
 **Screening Results Table**
 
@@ -1359,11 +1434,72 @@ Counts at the top show identified, screened, included, excluded, flagged, and fa
 - Click any row to open the full AI reasoning in a detail panel
 - Export to `.xlsx` with one click
 
+**Workspace Review Queue**
+
+When a workspace is open, Stage 4 also shows a **Workspace Review Queue** card. It separates AI suggestions from human final decisions.
+
+For each review item, you can:
+- Filter by stage, status, and record origin.
+- See the AI suggestion and rationale.
+- Accept the AI suggestion as a human decision.
+- Save a human Include, Exclude, or Maybe decision.
+- Write a rationale or note.
+- Choose an exclusion reason for full-text excludes.
+
+The queue also shows how many items are visible versus how many review items exist in the current scope. If you import 900 references but see only 5 rows, the explanation may say that only 5 are visible because Status is set to Suggested, or because the origin filter is set to PDF-only records. Use **Clear filters** or **Show all** to return to the full queue.
+
+Origin meanings in the queue:
+- **Imported references**: records imported from database/reference-manager files.
+- **PDF-only records**: records created from PDFs without imported reference metadata. They can still be reviewed, but they are counted separately from database/reference imports.
+- **Manual records**: reserved for future manual-entry workflows.
+
+Status meanings:
+- **Pending**: no AI or human decision yet.
+- **Suggested**: AI has suggested a decision, but no human final decision exists.
+- **Included**: a human saved Include.
+- **Excluded**: a human saved Exclude.
+- **Maybe**: a human saved Maybe.
+- **Failed**: processing failed or produced an error.
+
+For full-text Exclude decisions, the Web App requires an exclusion reason. This supports later workspace reporting data and full-text exclusion counts by reason.
+
+**Workspace Exports**
+
+When a workspace is open, Stage 4 also shows a **Workspace Exports** card. Click **Generate workspace exports** to write a new export bundle under:
+
+```text
+workspace_name/
+└── exports/
+    └── export_YYYYMMDD_HHMMSS_xxxxxxxx/
+```
+
+The bundle includes:
+- `workspace_screening_decisions.csv`
+- `workspace_screening_decisions.xlsx`
+- `workspace_review_items.csv`
+- `workspace_ai_suggestions.csv`
+- `workspace_human_decisions.csv`
+- `workspace_full_text_exclusions.csv`
+- `prisma_ready_counts.json`
+- `prisma_ready_counts.csv`
+- `methods_disclosure.md`
+- `export_manifest.json`
+
+The main screening decision export includes record metadata, record origin, deduplication state, active/inactive status, AI suggestion fields, human final decision fields, reviewer, timestamp, full-text exclusion reason when available, linked PDF display name, and source filename/count information where practical.
+
+Important interpretation rules:
+- Human final decisions override AI suggestions in export fields.
+- AI-only suggestions are labeled as not final.
+- Duplicate/inactive records are retained in audit exports but excluded from active screening counts.
+- PDF-only records are distinguishable from imported reference records.
+- PRISMA-ready counts are derived from the workspace database and should be checked before reporting.
+- Counts that cannot yet be represented accurately are marked `not_available` rather than fabricated.
+
 **Extraction Results Table**
 
 Structured data extracted from included papers. Each column is one of your defined fields. Export to `.xlsx`.
 
-### 20.3 AI Enhance Feature
+### 20.4 AI Enhance Feature
 
 Any text area for criteria writing has an **Enhance** button in the top-right corner of its label row. Clicking it:
 
@@ -1377,7 +1513,7 @@ Any text area for criteria writing has an **Enhance** button in the top-right co
 
 This uses your already-configured API key — no extra setup needed.
 
-### 20.4 Help & Guide Drawer
+### 20.5 Help & Guide Drawer
 
 Click the **Guide** button in the top-right corner of the screen to open the in-app help drawer. It contains nine sections:
 

@@ -10,6 +10,7 @@ import time
 import uuid
 import shutil
 import threading
+import hashlib
 from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict
@@ -17,7 +18,6 @@ from dataclasses import asdict
 from flask import (
     Flask, render_template, request, jsonify, send_file, Response, stream_with_context
 )
-from werkzeug.utils import secure_filename
 
 # Parent directory contains the core modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -29,6 +29,22 @@ from ingestion import (
 )
 from housing_enhanced import SystematicReviewAutomation
 from version import VERSION, VERSION_TAG
+import workspace_store
+from workspace_store import (
+    WORKSPACE_PDF_TOKEN,
+    UnsafeWorkspacePath,
+    WorkspaceError,
+    WorkspaceNotFound,
+)
+from WebApp.services import (
+    export_service,
+    job_guard,
+    processing_service,
+    response_builders,
+    runtime_state,
+    upload_service,
+    workspace_service,
+)
 
 # Local-only browser UI: this Flask app is intended to run on the researcher's
 # own computer at 127.0.0.1. It is not designed for public hosting or multi-user
@@ -48,6 +64,14 @@ MAX_REFERENCE_UPLOAD_SIZE = 25 * 1024 * 1024
 MAX_PDF_UPLOAD_SIZE = 100 * 1024 * 1024
 MAX_PDF_UPLOAD_COUNT = 200
 WEBAPP_DEBUG = os.environ.get("SLR_WEBAPP_DEBUG") == "1"
+SETTINGS_SECRET_KEY_PARTS = (
+    "api_key",
+    "apikey",
+    "secret",
+    "token",
+    "password",
+    "credential",
+)
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,322 +86,206 @@ app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
 session = {
     "references": [],
     "dedup_stats": None,
-    "screening_results": [],
     "pdf_folder": "",
-    "automation": None,
-    "stop_event": threading.Event(),
-    "processing_thread": None,
-    "progress": [],
-    "progress_lock": threading.Lock(),
     "pdf_display_names": {},
-    "processing_summary": None,
-    "processing_error": "",
-    "processing_report_errors": [],
-    "processing_reports": {},
+    "workspace": None,
+    "reference_uploads": {},
 }
+runtime_state.initialize(session)
 
 
-def _push(event_type: str, data: dict):
-    with session["progress_lock"]:
-        session["progress"].append({
+def _push_runtime(state, event_type: str, data: dict):
+    with state.progress_lock:
+        state.progress.append({
             "type": event_type,
             "data": data,
             "ts": time.time(),
         })
 
 
+def _push_screening(event_type: str, data: dict):
+    _push_runtime(runtime_state.screening(session), event_type, data)
+
+
+def _push_processing(event_type: str, data: dict):
+    _push_runtime(runtime_state.processing(session), event_type, data)
+
+
 def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
+    return upload_service.is_relative_to(path, root)
 
 
 def _resolve_existing_inside(path_value: str, root: Path, require_dir: bool = False) -> Path:
-    if not path_value:
-        raise FileNotFoundError("Path not provided")
-    resolved = Path(path_value).resolve()
-    root_resolved = root.resolve()
-    try:
-        resolved.relative_to(root_resolved)
-    except ValueError as exc:
-        raise ValueError("Path is outside the WebApp upload directory") from exc
-    if not resolved.exists():
-        raise FileNotFoundError("Path not found")
-    if require_dir and not resolved.is_dir():
-        raise ValueError("Path is not a folder")
-    return resolved
+    return upload_service.resolve_existing_inside(path_value, root, require_dir=require_dir)
 
 
 def _truthy(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    return upload_service.truthy(value)
 
 
 def _pdf_relative_name(path: Path, folder: Path) -> str:
-    return path.resolve().relative_to(folder.resolve()).as_posix()
+    return upload_service.pdf_relative_name(path, folder)
 
 
 def _discover_pdf_files(folder: Path, include_subfolders: bool = False) -> list[Path]:
-    finder = folder.rglob if include_subfolders else folder.glob
-    return sorted(
-        (p for p in finder("*.pdf") if p.is_file() and p.suffix.lower() == ".pdf"),
-        key=lambda p: _pdf_relative_name(p, folder).lower(),
-    )
+    return upload_service.discover_pdf_files(folder, include_subfolders)
 
 
 def _resolve_pdf_file(folder: Path, filename: str) -> Path:
-    if not filename:
-        raise ValueError("Missing filename")
-    target = (folder / filename).resolve()
-    target.relative_to(folder.resolve())
-    if target.suffix.lower() != ".pdf":
-        raise ValueError("Invalid filename")
-    return target
+    return upload_service.resolve_pdf_file(folder, filename)
 
 
 def _validate_upload_filename(filename: str, allowed_exts: set[str]) -> tuple[str, str]:
-    original = (filename or "").strip()
-    if not original:
-        raise ValueError("Empty filename")
-    if "/" in original or "\\" in original or original in {".", ".."}:
-        raise ValueError("Invalid filename")
-
-    safe_name = secure_filename(original)
-    if not safe_name or safe_name in {".", ".."}:
-        raise ValueError("Invalid filename")
-
-    ext = Path(safe_name).suffix.lower()
-    if ext not in allowed_exts:
-        raise ValueError(f"Unsupported format: {ext}")
-    return original, ext
+    return upload_service.validate_upload_filename(filename, allowed_exts)
 
 
 def _save_uploaded_file(file_storage, folder: Path, allowed_exts: set[str], max_size: int) -> dict:
-    original, ext = _validate_upload_filename(file_storage.filename, allowed_exts)
-    folder.mkdir(parents=True, exist_ok=True)
-    server_filename = f"{uuid.uuid4().hex}{ext}"
-    dest = (folder / server_filename).resolve()
-    if not _is_relative_to(dest, folder):
-        raise ValueError("Invalid upload destination")
-
-    file_storage.save(str(dest))
-    size = dest.stat().st_size
-    if size > max_size:
-        dest.unlink(missing_ok=True)
-        raise ValueError(f"File is too large; limit is {max_size // (1024 * 1024)} MB")
-
-    return {
-        "path": str(dest),
-        "filename": server_filename,
-        "original_filename": original,
-        "size": size,
-    }
+    return upload_service.save_uploaded_file(file_storage, folder, allowed_exts, max_size)
 
 
 def _load_webapp_settings() -> dict:
     if not SETTINGS_FILE.exists():
         return {}
     data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-    if "api_key" in data:
-        data.pop("api_key", None)
-        SETTINGS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return data
+    safe = _sanitize_settings(data)
+    if safe != data:
+        SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
+    return safe
 
 
-def _decision_bucket(decision: str) -> str:
-    d = (decision or "").lower()
-    if "error" in d or "fail" in d:
-        return "failed"
-    if "include" in d:
-        return "included"
-    if "exclude" in d:
-        return "excluded"
-    if "flag" in d or "human" in d or "review" in d:
-        return "flagged"
-    return "other"
+def _write_webapp_settings(data: dict) -> None:
+    safe = _sanitize_settings(data)
+    SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
 
 
-def _processing_counters(screening_results: list[dict], total_files: int = 0) -> dict:
-    counters = {
-        "total_files": total_files or len(screening_results),
-        "processed_files": len(screening_results),
-        "included": 0,
-        "excluded": 0,
-        "flagged": 0,
-        "failed": 0,
-    }
-    for result in screening_results:
-        bucket = _decision_bucket(result.get("decision", ""))
-        if bucket in counters:
-            counters[bucket] += 1
-    return counters
+def _sanitize_settings(value):
+    if isinstance(value, dict):
+        clean = {}
+        for key, nested in value.items():
+            key_text = str(key)
+            if any(part in key_text.lower() for part in SETTINGS_SECRET_KEY_PARTS):
+                continue
+            clean[key_text] = _sanitize_settings(nested)
+        return clean
+    if isinstance(value, list):
+        return [_sanitize_settings(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_settings(item) for item in value]
+    return value
 
 
-def _screening_records(auto) -> list[dict]:
-    display_names = session.get("pdf_display_names", {})
-    records = []
-    for result in getattr(auto, "screening_results", []):
-        record = asdict(result) if hasattr(result, "__dataclass_fields__") else dict(result)
-        filename = record.get("filename", "")
-        record["server_filename"] = filename
-        record["display_filename"] = display_names.get(filename, filename)
-        record.setdefault("title", "")
-        record.setdefault("reasoning", "")
-        record.setdefault("rationale", record.get("reasoning", ""))
-        record.setdefault("error", record.get("reasoning", "") if _decision_bucket(record.get("decision", "")) == "failed" else "")
-        if hasattr(auto, "get_paper_text_metadata"):
-            meta = auto.get_paper_text_metadata(filename)
-            if meta:
-                record["text_hash"] = meta.get("text_hash", "")
-                record["text_cache_path"] = meta.get("text_cache_path", "")
-                record["extraction_method"] = meta.get("extraction_method", "")
-                record["extraction_status"] = meta.get("extraction_status", "")
-                record["extracted_char_count"] = meta.get("extracted_char_count", 0)
-        records.append(record)
-    return records
+def _current_workspace():
+    return workspace_service.current_workspace(session)
 
 
-def _extraction_records(auto) -> list[dict]:
-    display_names = session.get("pdf_display_names", {})
-    records = []
-    for result in getattr(auto, "extraction_results", []):
-        if hasattr(result, "__dataclass_fields__"):
-            record = {
-                "filename": result.filename,
-                "fields": result.fields,
-                "processing_time": round(result.processing_time, 2),
-                "api_tokens_used": result.api_tokens_used,
-            }
-        else:
-            record = dict(result)
-            if "processing_time" in record:
-                record["processing_time"] = round(record["processing_time"], 2)
-        filename = record.get("filename", "")
-        record["server_filename"] = filename
-        record["display_filename"] = display_names.get(filename, filename)
-        records.append(record)
-    return records
+def _workspace_response(handle=None) -> dict:
+    return response_builders.workspace_response(handle or _current_workspace())
 
 
-def _path_exists(path_value) -> bool:
-    return bool(path_value) and Path(path_value).exists()
+def _workspace_pdf_api_name(relative_path: str) -> str:
+    return workspace_service.workspace_pdf_api_name(relative_path)
 
 
-def _processing_report_state(auto) -> dict:
-    return {
-        "screening_csv": {
-            "path": str(getattr(auto, "screening_csv", "")),
-            "exists": _path_exists(getattr(auto, "screening_csv", "")),
+def _workspace_pdf_relative_path(api_name: str) -> str:
+    return workspace_service.workspace_pdf_relative_path(api_name)
+
+
+def _load_workspace_session_state(handle) -> None:
+    workspace_service.load_workspace_session_state(session, handle)
+
+
+def _clear_workspace_session_state() -> None:
+    workspace_service.clear_workspace_session_state(session)
+
+
+def _public_recent_workspaces() -> list[dict]:
+    return workspace_service.public_recent_workspaces(_load_webapp_settings)
+
+
+def _remember_recent_workspace(handle) -> None:
+    workspace_service.remember_recent_workspace(handle, _load_webapp_settings, _write_webapp_settings)
+
+
+def _workspace_path_from_recent(workspace_id: str) -> str:
+    return workspace_service.workspace_path_from_recent(workspace_id, _load_webapp_settings)
+
+
+def _set_current_workspace(handle) -> None:
+    workspace_service.set_current_workspace(session, handle, _load_webapp_settings, _write_webapp_settings)
+
+
+def _resolve_workspace_reference_input(path_value: str) -> tuple[Path, dict]:
+    handle = _current_workspace()
+    if not handle:
+        return _resolve_existing_inside(path_value, REFERENCE_UPLOAD_DIR), {}
+
+    if path_value.startswith("workspace-upload:"):
+        upload_id = path_value.split(":", 1)[1]
+        meta = session.setdefault("reference_uploads", {}).get(upload_id)
+        if not meta:
+            raise FileNotFoundError("Upload not found")
+        ref_path = _resolve_existing_inside(meta.get("path", ""), REFERENCE_UPLOAD_DIR)
+        return ref_path, meta
+
+    ref_path = workspace_store.resolve_workspace_relative_path(
+        handle.root,
+        path_value,
+        subdir="imports",
+        must_exist=True,
+        require_file=True,
+    )
+    return ref_path, {"original_filename": ref_path.name}
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+
+
+def _workspace_relative_api_path(handle, path_value, *, allowed_roots: tuple[str, ...] = ("exports", "cache", "audit")) -> str:
+    return workspace_service.workspace_relative_api_path(handle, path_value, allowed_roots=allowed_roots)
+
+
+def _require_workspace():
+    return workspace_service.require_workspace(session)
+
+
+def _stage_for_workspace(stage: str) -> str:
+    return workspace_service.stage_for_workspace(stage)
+
+
+def _workspace_review_response(handle=None) -> dict:
+    return response_builders.workspace_review_response(handle or _current_workspace())
+
+
+def _review_queue_filter_payload(stage: str | None, status: str | None, origin: str | None) -> dict:
+    return response_builders.review_queue_filter_payload(stage, status, origin)
+
+
+def _persist_workspace_abstract_suggestion(handle, result, *, criteria: str, provider: str, model: str) -> None:
+    record = next(
+        (item for item in session.get("references", []) if item.get("record_id") == result.record_id),
+        {},
+    )
+    text_fingerprint = "\n".join([
+        record.get("title", "") or result.title or "",
+        record.get("abstract", "") or "",
+    ])
+    workspace_store.add_ai_suggestion(
+        handle.root,
+        record_id=result.record_id,
+        stage=workspace_store.REVIEW_STAGE_TITLE_ABSTRACT,
+        decision=result.decision,
+        rationale=result.rationale,
+        confidence=result.confidence,
+        provider=provider,
+        model=model,
+        prompt_hash=_hash_text(criteria),
+        text_hash=_hash_text(text_fingerprint),
+        metadata={
+            "tokens": result.tokens,
+            "proc_time": result.proc_time,
         },
-        "screening_excel": {
-            "path": str(getattr(auto, "screening_excel", "")),
-            "exists": _path_exists(getattr(auto, "screening_excel", "")),
-        },
-        "extraction_csv": {
-            "path": str(getattr(auto, "extraction_csv", "")),
-            "exists": _path_exists(getattr(auto, "extraction_csv", "")),
-        },
-        "extraction_excel": {
-            "path": str(getattr(auto, "extraction_excel", "")),
-            "exists": _path_exists(getattr(auto, "extraction_excel", "")),
-        },
-        "summary_report": {
-            "path": str(getattr(auto, "summary_report", "")),
-            "exists": _path_exists(getattr(auto, "summary_report", "")),
-        },
-        "audit_ledger": {
-            "path": str(getattr(auto, "audit_ledger", "")),
-            "exists": _path_exists(getattr(auto, "audit_ledger", "")),
-        },
-    }
-
-
-def _ensure_processing_reports(auto) -> tuple[dict, list[str]]:
-    errors = []
-
-    if getattr(auto, "screening_results", []):
-        for writer_name, path_name in (
-            ("write_screening_csv", "screening_csv"),
-            ("write_screening_excel", "screening_excel"),
-        ):
-            path_value = getattr(auto, path_name, "")
-            if path_value and not Path(path_value).exists() and hasattr(auto, writer_name):
-                try:
-                    getattr(auto, writer_name)()
-                except Exception as exc:
-                    errors.append(f"{path_name}: {exc}")
-            if path_value and not Path(path_value).exists():
-                errors.append(f"{path_name} was not generated")
-
-    if getattr(auto, "extraction_results", []):
-        for writer_name, path_name in (
-            ("write_extraction_csv", "extraction_csv"),
-            ("write_extraction_excel", "extraction_excel"),
-        ):
-            path_value = getattr(auto, path_name, "")
-            if path_value and not Path(path_value).exists() and hasattr(auto, writer_name):
-                try:
-                    getattr(auto, writer_name)()
-                except Exception as exc:
-                    errors.append(f"{path_name}: {exc}")
-            if path_value and not Path(path_value).exists():
-                errors.append(f"{path_name} was not generated")
-
-    summary_path = getattr(auto, "summary_report", "")
-    if summary_path and not Path(summary_path).exists() and hasattr(auto, "_generate_summary"):
-        try:
-            auto._generate_summary()
-        except Exception as exc:
-            errors.append(f"summary_report: {exc}")
-        if not Path(summary_path).exists():
-            errors.append("summary_report was not generated")
-
-    return _processing_report_state(auto), errors
-
-
-def _processing_payload(auto, active: bool) -> dict:
-    if not auto:
-        return {
-            "active": active,
-            "stats": {},
-            "counters": _processing_counters([]),
-            "screening_count": 0,
-            "extraction_count": 0,
-            "reports": {},
-            "report_errors": session.get("processing_report_errors", []),
-            "error": session.get("processing_error", ""),
-        }
-
-    screening = _screening_records(auto)
-    extraction = _extraction_records(auto)
-    stats = dict(getattr(auto, "stats", {}))
-    counters = _processing_counters(screening, stats.get("total_files", 0))
-    stats.update({
-        "total_files": counters["total_files"],
-        "processed_files": counters["processed_files"],
-        "likely_include": counters["included"],
-        "likely_exclude": counters["excluded"],
-        "flag_for_review": counters["flagged"],
-        "flag_for_human_review": 0,
-        "failed_files": counters["failed"],
-    })
-    reports = session.get("processing_reports") or _processing_report_state(auto)
-    return {
-        "active": active,
-        "stats": stats,
-        "counters": counters,
-        "screening_count": len(screening),
-        "extraction_count": len(extraction),
-        "reports": reports,
-        "report_errors": session.get("processing_report_errors", []),
-        "error": session.get("processing_error", ""),
-        "summary": session.get("processing_summary"),
-    }
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -538,6 +446,228 @@ def api_test_connection():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Workspace API
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/workspaces/current", methods=["GET"])
+def api_workspace_current():
+    return jsonify(_workspace_response())
+
+
+@app.route("/api/workspaces/recent", methods=["GET"])
+def api_workspace_recent():
+    return jsonify({"recent": _public_recent_workspaces()})
+
+
+@app.route("/api/workspaces/create", methods=["POST"])
+def api_workspace_create():
+    reservation = job_guard.try_reserve("workspace_lifecycle")
+    if reservation is None:
+        return jsonify({"error": job_guard.WORKSPACE_CONFLICT_ERROR}), 409
+    try:
+        d = request.json or {}
+        path = (d.get("path") or "").strip()
+        name = (d.get("name") or "").strip() or None
+        review_title = (d.get("review_title") or "").strip() or None
+        review_type = (d.get("review_type") or "").strip() or None
+        review_question = (d.get("review_question") or "").strip() or None
+        reviewer_name = (d.get("reviewer_name") or "").strip() or None
+        if review_type and review_type not in workspace_store.REVIEW_TYPES:
+            return jsonify({"error": "Unknown review type"}), 400
+        if not path and not review_title and not name:
+            return jsonify({
+                "error": "Enter a review title to create a workspace, or open the advanced location to choose a folder path."
+            }), 400
+        try:
+            handle = workspace_store.create_workspace(
+                path or None,
+                name=name,
+                review_title=review_title,
+                review_type=review_type,
+                review_question=review_question,
+                reviewer_name=reviewer_name,
+            )
+            _set_current_workspace(handle)
+            return jsonify(_workspace_response(handle))
+        except WorkspaceError as e:
+            return jsonify({"error": str(e)}), 400
+        except OSError as e:
+            return jsonify({"error": str(e)}), 400
+    finally:
+        job_guard.release(reservation)
+
+
+@app.route("/api/workspaces/open", methods=["POST"])
+def api_workspace_open():
+    reservation = job_guard.try_reserve("workspace_lifecycle")
+    if reservation is None:
+        return jsonify({"error": job_guard.WORKSPACE_CONFLICT_ERROR}), 409
+    try:
+        d = request.json or {}
+        path = (d.get("path") or "").strip()
+        workspace_id = (d.get("workspace_id") or "").strip()
+        if not path and workspace_id:
+            path = _workspace_path_from_recent(workspace_id)
+        if not path:
+            return jsonify({"error": "Workspace path is required"}), 400
+        try:
+            handle = workspace_store.open_workspace(path)
+            _set_current_workspace(handle)
+            return jsonify(_workspace_response(handle))
+        except WorkspaceNotFound as e:
+            return jsonify({"error": str(e)}), 404
+        except WorkspaceError as e:
+            return jsonify({"error": str(e)}), 400
+        except OSError as e:
+            return jsonify({"error": str(e)}), 400
+    finally:
+        job_guard.release(reservation)
+
+
+@app.route("/api/workspaces/close", methods=["POST"])
+def api_workspace_close():
+    reservation = job_guard.try_reserve("workspace_lifecycle")
+    if reservation is None:
+        return jsonify({"error": job_guard.WORKSPACE_CONFLICT_ERROR}), 409
+    try:
+        _clear_workspace_session_state()
+        return jsonify(_workspace_response())
+    finally:
+        job_guard.release(reservation)
+
+
+@app.route("/api/workspace/review/queue", methods=["GET"])
+def api_workspace_review_queue():
+    try:
+        handle = _require_workspace()
+        stage = request.args.get("stage") or None
+        status = request.args.get("status") or None
+        origin = request.args.get("origin") or request.args.get("record_origin") or None
+        return jsonify(response_builders.workspace_review_queue_response(
+            handle,
+            stage=stage,
+            status=status,
+            origin=origin,
+        ))
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/review/decision", methods=["POST"])
+def api_workspace_review_decision():
+    d = request.json or {}
+    try:
+        handle = _require_workspace()
+        item = workspace_store.add_human_decision(
+            handle.root,
+            review_item_id=d.get("review_item_id") or d.get("item_id") or "",
+            reviewer_id=d.get("reviewer_id") or workspace_store.DEFAULT_REVIEWER_ID,
+            decision=d.get("decision") or "",
+            rationale=d.get("rationale") or "",
+            exclusion_reason_id=d.get("exclusion_reason_id") or None,
+        )
+        return jsonify({"item": item, "summary": workspace_store.get_review_summary(handle.root)})
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/review/accept-ai", methods=["POST"])
+def api_workspace_review_accept_ai():
+    d = request.json or {}
+    try:
+        handle = _require_workspace()
+        item = workspace_store.accept_ai_suggestion(
+            handle.root,
+            review_item_id=d.get("review_item_id") or d.get("item_id") or "",
+            reviewer_id=d.get("reviewer_id") or workspace_store.DEFAULT_REVIEWER_ID,
+            rationale=d.get("rationale") or "",
+            exclusion_reason_id=d.get("exclusion_reason_id") or None,
+        )
+        return jsonify({"item": item, "summary": workspace_store.get_review_summary(handle.root)})
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/review/override", methods=["POST"])
+def api_workspace_review_override():
+    d = request.json or {}
+    try:
+        handle = _require_workspace()
+        item = workspace_store.override_decision(
+            handle.root,
+            review_item_id=d.get("review_item_id") or d.get("item_id") or "",
+            reviewer_id=d.get("reviewer_id") or workspace_store.DEFAULT_REVIEWER_ID,
+            decision=d.get("decision") or "",
+            rationale=d.get("rationale") or "",
+            exclusion_reason_id=d.get("exclusion_reason_id") or None,
+        )
+        return jsonify({"item": item, "summary": workspace_store.get_review_summary(handle.root)})
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/review/summary", methods=["GET"])
+def api_workspace_review_summary():
+    try:
+        handle = _require_workspace()
+        return jsonify(_workspace_review_response(handle))
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/exports/summary", methods=["GET"])
+def api_workspace_exports_summary():
+    try:
+        handle = _require_workspace()
+        return jsonify(export_service.get_workspace_exports_summary(workspace_store, handle.root))
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/exports/generate", methods=["POST"])
+def api_workspace_exports_generate():
+    try:
+        handle = _require_workspace()
+        manifest = export_service.generate_workspace_exports(
+            workspace_store,
+            handle.root,
+            options=request.json or {},
+        )
+        return jsonify({"export": manifest})
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+    except OSError as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/workspace/exports/list", methods=["GET"])
+def api_workspace_exports_list():
+    try:
+        handle = _require_workspace()
+        exports = export_service.list_workspace_exports(workspace_store, handle.root)
+        return jsonify({"exports": exports, "total": len(exports)})
+    except WorkspaceError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/workspace/exports/download/<export_id>/<path:filename>", methods=["GET"])
+def api_workspace_exports_download(export_id, filename):
+    try:
+        handle = _require_workspace()
+        target = export_service.resolve_export_download(
+            workspace_store,
+            handle.root,
+            export_id,
+            filename,
+        )
+        return send_file(str(target), as_attachment=True, download_name=target.name)
+    except FileNotFoundError:
+        return jsonify({"error": "Export file not found"}), 404
+    except (WorkspaceError, ValueError):
+        return jsonify({"error": "Invalid export path"}), 400
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Reference ingestion
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -553,6 +683,16 @@ def upload_references():
             ALLOWED_REFERENCE_EXTENSIONS,
             MAX_REFERENCE_UPLOAD_SIZE,
         )
+        if _current_workspace():
+            upload_id = uuid.uuid4().hex
+            session.setdefault("reference_uploads", {})[upload_id] = saved
+            public = {
+                "path": f"workspace-upload:{upload_id}",
+                "filename": saved["filename"],
+                "original_filename": saved["original_filename"],
+                "size": saved["size"],
+            }
+            return jsonify(public)
         return jsonify(saved)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -563,20 +703,35 @@ def api_parse_references():
     d = request.json or {}
     path = d.get("path", "")
     try:
-        ref_path = _resolve_existing_inside(path, REFERENCE_UPLOAD_DIR)
+        ref_path, upload_meta = _resolve_workspace_reference_input(path)
     except FileNotFoundError:
         return jsonify({"error": "File not found"}), 404
-    except ValueError as e:
+    except (ValueError, UnsafeWorkspacePath) as e:
         return jsonify({"error": str(e)}), 400
     if ref_path.suffix.lower() not in ALLOWED_REFERENCE_EXTENSIONS:
         return jsonify({"error": "Unsupported reference file format"}), 400
     try:
         records = parse_references(str(ref_path))
         session["references"] = records
-        return jsonify({
+        payload = {
             "count": len(records),
             "sample": records[:5],
-        })
+        }
+        handle = _current_workspace()
+        if handle:
+            persisted = workspace_store.persist_reference_import(
+                handle.root,
+                ref_path,
+                records,
+                original_filename=upload_meta.get("original_filename") or ref_path.name,
+            )
+            payload["workspace"] = {
+                "source_id": persisted["source_id"],
+                "record_count": persisted["record_count"],
+                "summary": handle.public_summary(),
+            }
+            session["references"] = workspace_store.load_records(handle.root)
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -587,6 +742,23 @@ def api_deduplicate():
         return jsonify({"error": "No references loaded"}), 400
     d = request.json or {}
     threshold = d.get("threshold", 90)
+    handle = _current_workspace()
+    if handle:
+        result = workspace_store.apply_reference_deduplication(
+            handle.root,
+            fuzzy_threshold=threshold,
+        )
+        session["references"] = workspace_store.load_records(handle.root)
+        session["dedup_stats"] = result["stats"]
+        return jsonify({
+            "stats": result["stats"],
+            "remaining": len(session["references"]),
+            "workspace": {
+                "summary": handle.public_summary(),
+                "duplicates": result["duplicates"],
+            },
+        })
+
     unique, stats = deduplicate(session["references"], fuzzy_threshold=threshold)
     session["references"] = unique
     session["dedup_stats"] = asdict(stats)
@@ -597,14 +769,33 @@ def api_deduplicate():
 def api_list_references():
     page = int(request.args.get("page", 1))
     per_page = int(request.args.get("per_page", 50))
+    query = (request.args.get("q") or "").strip()
     refs = session["references"]
+    filtered = refs
+    if query:
+        needle = query.lower()
+        filtered = [
+            ref for ref in refs
+            if any(
+                needle in (str(ref.get(field) or "").lower())
+                for field in ("title", "authors", "year", "journal", "doi")
+            )
+            or needle in (str(ref.get("record_id") or "").lower())
+        ]
     start = (page - 1) * per_page
     end = start + per_page
+    page_records = filtered[start:end]
     return jsonify({
         "total": len(refs),
+        "filtered_total": len(filtered),
+        "visible_count": len(page_records),
+        "showing": len(page_records),
         "page": page,
         "per_page": per_page,
-        "records": refs[start:end],
+        "query": query,
+        "showing_copy": f"Showing {len(page_records)} of {len(filtered)} records{(' matching filter') if query else ''}",
+        "has_filter": bool(query),
+        "records": page_records,
     })
 
 
@@ -623,50 +814,90 @@ def api_start_screening():
     if d.get("base_url"):
         kwargs["base_url"] = d["base_url"]
 
-    if not session["references"]:
-        return jsonify({"error": "No references loaded"}), 400
+    reservation = job_guard.try_reserve("screening")
+    if reservation is None:
+        return jsonify({"error": job_guard.CONFLICT_ERROR}), 409
 
+    worker_started = False
+    screening = runtime_state.screening(session)
     try:
-        llm = LLMManager(provider, api_key, model, **kwargs)
-    except Exception as e:
-        return jsonify({"error": f"LLM init failed: {e}"}), 500
+        if not session["references"]:
+            return jsonify({"error": "No references loaded"}), 400
 
-    session["screening_results"] = []
-    session["stop_event"].clear()
-    session["progress"] = []
+        try:
+            llm = LLMManager(provider, api_key, model, **kwargs)
+        except Exception as e:
+            return jsonify({"error": f"LLM init failed: {e}"}), 500
 
-    screener = AbstractScreener(llm, rate_limit_delay=float(d.get("rate_delay", 0.5)))
+        screening.reset_for_start()
 
-    def _run():
-        def _cb(result, idx, total):
-            session["screening_results"].append(asdict(result))
-            _push("screening_progress", {
-                "index": idx,
-                "total": total,
-                "decision": result.decision,
-                "title": result.title[:120],
-            })
+        screener = AbstractScreener(
+            llm,
+            rate_limit_delay=float(d.get("rate_delay", 0.5)),
+            stop_event=screening.stop_event,
+        )
+        workspace_handle = _current_workspace()
 
-        screener.screen_all(session["references"], criteria, callback=_cb)
-        _push("screening_done", {"total": len(session["screening_results"])})
+        def _run():
+            try:
+                def _cb(result, idx, total):
+                    screening.results.append(asdict(result))
+                    if workspace_handle:
+                        try:
+                            _persist_workspace_abstract_suggestion(
+                                workspace_handle,
+                                result,
+                                criteria=criteria,
+                                provider=provider,
+                                model=model,
+                            )
+                        except Exception as exc:
+                            _push_screening("screening_warning", {"warning": f"Workspace suggestion not persisted: {exc}"})
+                    _push_screening("screening_progress", {
+                        "index": idx,
+                        "total": total,
+                        "decision": result.decision,
+                        "title": result.title[:120],
+                    })
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    session["processing_thread"] = t
-    return jsonify({"status": "started", "total": len(session["references"])})
+                screener.screen_all(session["references"], criteria, callback=_cb)
+                _push_screening("screening_done", {"total": len(screening.results)})
+            except Exception:
+                screening.error = "Screening failed"
+                raise
+            finally:
+                job_guard.release(reservation)
+
+        t = threading.Thread(target=_run, daemon=True)
+        previous_thread = screening.thread
+        previous_stream_job = session["event_stream_job"]
+        screening.thread = t
+        session["event_stream_job"] = "screening"
+        try:
+            t.start()
+        except Exception:
+            screening.thread = previous_thread
+            session["event_stream_job"] = previous_stream_job
+            raise
+        worker_started = True
+        return jsonify({"status": "started", "total": len(session["references"])})
+    finally:
+        if not worker_started:
+            job_guard.release(reservation)
 
 
 @app.route("/api/screening/stop", methods=["POST"])
 def api_stop_screening():
-    session["stop_event"].set()
+    runtime_state.screening(session).stop_event.set()
     return jsonify({"status": "stopping"})
 
 
 @app.route("/api/screening/results", methods=["GET"])
 def api_screening_results():
+    results = runtime_state.screening(session).results
     return jsonify({
-        "results": session["screening_results"],
-        "total": len(session["screening_results"]),
+        "results": results,
+        "total": len(results),
     })
 
 
@@ -678,7 +909,7 @@ def api_export_screening():
 
     from ingestion import AbstractScreeningResult
     results_objs = []
-    for r in session["screening_results"]:
+    for r in runtime_state.screening(session).results:
         results_objs.append(AbstractScreeningResult(
             record_id=r.get("record_id", ""),
             title=r.get("title", ""),
@@ -720,6 +951,45 @@ def upload_pdfs():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
+    handle = _current_workspace()
+    if handle:
+        pdf_dir = handle.root / "pdfs"
+        saved = []
+        display_names = session.setdefault("pdf_display_names", {})
+        for f in files:
+            try:
+                item = _save_uploaded_file(f, pdf_dir, ALLOWED_PDF_EXTENSIONS, MAX_PDF_UPLOAD_SIZE)
+                relative_path = Path(item["path"]).resolve().relative_to(handle.root.resolve()).as_posix()
+                pdf_meta = workspace_store.register_pdf(
+                    handle.root,
+                    relative_path,
+                    original_filename=item["original_filename"],
+                    display_name=item["original_filename"],
+                )
+            except (ValueError, WorkspaceError, FileNotFoundError) as e:
+                return jsonify({"error": str(e)}), 400
+            api_name = _workspace_pdf_api_name(pdf_meta["relative_path"])
+            display_names[api_name] = pdf_meta["display_name"]
+            display_names[Path(api_name).name] = pdf_meta["display_name"]
+            saved.append({
+                "path": api_name,
+                "filename": api_name,
+                "relative_path": pdf_meta["relative_path"],
+                "original_filename": pdf_meta["original_filename"],
+                "display_name": pdf_meta["display_name"],
+                "size": pdf_meta["size"],
+                "sha256": pdf_meta["sha256"],
+                "pdf_id": pdf_meta["pdf_id"],
+            })
+
+        session["pdf_folder"] = WORKSPACE_PDF_TOKEN
+        return jsonify({
+            "count": len(saved),
+            "files": saved,
+            "folder": WORKSPACE_PDF_TOKEN,
+            "workspace": True,
+        })
+
     # Reuse the existing session folder so users can add files incrementally
     existing = session.get("pdf_folder", "")
     try:
@@ -746,6 +1016,39 @@ def upload_pdfs():
 
 @app.route("/api/pdfs/list", methods=["GET"])
 def list_pdfs():
+    handle = _current_workspace()
+    if handle:
+        include_subfolders = _truthy(request.args.get("include_subfolders"))
+        files = []
+        for row in workspace_store.list_pdf_metadata(handle.root):
+            api_name = _workspace_pdf_api_name(row["relative_path"])
+            if not include_subfolders and "/" in api_name:
+                continue
+            try:
+                target = workspace_store.resolve_workspace_relative_path(
+                    handle.root,
+                    row["relative_path"],
+                    subdir="pdfs",
+                    must_exist=True,
+                    require_file=True,
+                )
+            except (FileNotFoundError, WorkspaceError):
+                continue
+            files.append({
+                "name": api_name,
+                "display_name": row["display_name"],
+                "size": row["file_size"],
+                "path": api_name,
+                "sha256": row["sha256"],
+                "pdf_id": row["pdf_id"],
+            })
+        return jsonify({
+            "files": files,
+            "folder": WORKSPACE_PDF_TOKEN,
+            "include_subfolders": include_subfolders,
+            "workspace": True,
+        })
+
     pdf_folder = session.get("pdf_folder", "")
     include_subfolders = _truthy(request.args.get("include_subfolders"))
     try:
@@ -770,6 +1073,24 @@ def delete_pdf():
     d = request.json or {}
     filename = d.get("filename", "")
     include_subfolders = _truthy(d.get("include_subfolders"))
+    handle = _current_workspace()
+    if handle:
+        if not filename:
+            return jsonify({"error": "Missing filename"}), 400
+        try:
+            relative_path = _workspace_pdf_relative_path(filename)
+            remaining = workspace_store.delete_pdf(handle.root, relative_path)
+        except FileNotFoundError:
+            return jsonify({"error": "File not found"}), 404
+        except WorkspaceError:
+            return jsonify({"error": "Invalid filename"}), 400
+        display_names = session.setdefault("pdf_display_names", {})
+        display_names.pop(filename, None)
+        display_names.pop(Path(filename).name, None)
+        session["pdf_count"] = remaining
+        session["pdf_folder"] = WORKSPACE_PDF_TOKEN
+        return jsonify({"ok": True, "remaining": remaining})
+
     pdf_folder = session.get("pdf_folder", "")
     if not pdf_folder or not filename:
         return jsonify({"error": "Missing folder or filename"}), 400
@@ -793,6 +1114,13 @@ def delete_pdf():
 
 @app.route("/api/pdfs/clear", methods=["POST"])
 def clear_pdfs():
+    handle = _current_workspace()
+    if handle:
+        workspace_store.clear_pdfs(handle.root)
+        session["pdf_folder"] = WORKSPACE_PDF_TOKEN
+        session["pdf_display_names"] = {}
+        return jsonify({"ok": True})
+
     pdf_folder = session.get("pdf_folder", "")
     try:
         folder = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
@@ -807,6 +1135,22 @@ def clear_pdfs():
 
 @app.route("/api/pdfs/file/<path:filename>", methods=["GET"])
 def serve_pdf(filename):
+    handle = _current_workspace()
+    if handle:
+        try:
+            target = workspace_store.resolve_workspace_relative_path(
+                handle.root,
+                _workspace_pdf_relative_path(filename),
+                subdir="pdfs",
+                must_exist=True,
+                require_file=True,
+            )
+        except FileNotFoundError:
+            return jsonify({"error": "File not found"}), 404
+        except WorkspaceError:
+            return jsonify({"error": "Invalid path"}), 400
+        return send_file(str(target), mimetype="application/pdf")
+
     pdf_folder = session.get("pdf_folder", "")
     if not pdf_folder:
         return jsonify({"error": "No PDF folder"}), 404
@@ -823,91 +1167,28 @@ def serve_pdf(filename):
 @app.route("/api/processing/start", methods=["POST"])
 def api_start_processing():
     d = request.json or {}
-    pdf_folder = d.get("pdf_folder") or session.get("pdf_folder", "")
-    include_subfolders = _truthy(d.get("include_subfolders"))
-    try:
-        pdf_folder_path = _resolve_existing_inside(pdf_folder, PDF_UPLOAD_ROOT, require_dir=True)
-    except FileNotFoundError:
-        return jsonify({"error": "No PDF folder selected"}), 400
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    session["stop_event"].clear()
-    session["progress"] = []
-    session["processing_summary"] = None
-    session["processing_error"] = ""
-    session["processing_report_errors"] = []
-    session["processing_reports"] = {}
-
-    config = {
-        "api_key": d.get("api_key", ""),
-        "pdf_folder": str(pdf_folder_path),
-        "output_folder": str(OUTPUT_DIR),
-        "cache_enabled": d.get("cache_enabled", True),
-        "parallel_processing": d.get("parallel", True),
-        "max_workers": d.get("max_workers", 3),
-        "rate_limit_delay": d.get("rate_delay", 1.0),
-        "llm_provider": d.get("provider", "OpenAI"),
-        "llm_model": d.get("model", ""),
-        "two_stage_screening": d.get("two_stage", False),
-        "include_subfolders": include_subfolders,
-        "stop_event": session["stop_event"],
-        "screening_prompt": d.get("screening_prompt"),
-        "extraction_prompt": d.get("extraction_prompt"),
-        "extraction_fields": d.get("extraction_fields"),
-    }
-
-    if d.get("base_url"):
-        config["base_url"] = d["base_url"]
-
-    adv = d.get("advanced", {})
-    if adv:
-        config["advanced_config"] = adv
-
-    try:
-        auto = SystematicReviewAutomation(**config)
-        session["automation"] = auto
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    def _run():
-        try:
-            summary = auto.process_pdfs()
-            reports, report_errors = _ensure_processing_reports(auto)
-            session["processing_reports"] = reports
-            session["processing_report_errors"] = report_errors
-            session["processing_summary"] = summary
-            if report_errors:
-                summary = dict(summary)
-                summary["report_errors"] = report_errors
-                _push("processing_warning", {"warnings": report_errors, "reports": reports})
-            _push("processing_done", summary)
-        except Exception as e:
-            session["processing_error"] = str(e)
-            _push("processing_error", {"error": str(e)})
-
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    session["processing_thread"] = t
-
-    pdf_count = len(_discover_pdf_files(pdf_folder_path, include_subfolders))
-    return jsonify({"status": "started", "total": pdf_count})
+    result = processing_service.start_processing(
+        d,
+        session=session,
+        workspace_handle=_current_workspace(),
+        pdf_upload_root=PDF_UPLOAD_ROOT,
+        output_dir=OUTPUT_DIR,
+        automation_cls=SystematicReviewAutomation,
+        push_event=_push_processing,
+    )
+    if result.status_code == 200:
+        return jsonify(result.payload)
+    return jsonify(result.payload), result.status_code
 
 
 @app.route("/api/processing/stop", methods=["POST"])
 def api_stop_processing():
-    session["stop_event"].set()
-    return jsonify({"status": "stopping"})
+    return jsonify(processing_service.stop_processing(session))
 
 
 @app.route("/api/processing/status", methods=["GET"])
 def api_processing_status():
-    auto = session.get("automation")
-    if not auto:
-        return jsonify(_processing_payload(None, False))
-
-    running = session["processing_thread"] and session["processing_thread"].is_alive()
-    return jsonify(_processing_payload(auto, bool(running)))
+    return jsonify(processing_service.processing_status_payload(session, _current_workspace()))
 
 
 @app.route("/api/progress", methods=["GET"])
@@ -917,48 +1198,20 @@ def api_progress():
 
 @app.route("/api/processing/results", methods=["GET"])
 def api_processing_results():
-    auto = session.get("automation")
-    if not auto:
-        return jsonify({
-            "screening": [],
-            "extraction": [],
-            "counters": _processing_counters([]),
-            "reports": {},
-            "report_errors": session.get("processing_report_errors", []),
-            "error": session.get("processing_error", ""),
-        })
-
-    screening = _screening_records(auto)
-    extraction = _extraction_records(auto)
-    stats = dict(getattr(auto, "stats", {}))
-    return jsonify({
-        "screening": screening,
-        "extraction": extraction,
-        "counters": _processing_counters(screening, stats.get("total_files", 0)),
-        "reports": session.get("processing_reports") or _processing_report_state(auto),
-        "report_errors": session.get("processing_report_errors", []),
-        "error": session.get("processing_error", ""),
-        "summary": session.get("processing_summary"),
-    })
+    return jsonify(processing_service.processing_results_payload(session, _current_workspace()))
 
 
 @app.route("/api/processing/export", methods=["POST"])
 def api_export_processing():
-    auto = session.get("automation")
-    if not auto:
-        return jsonify({"error": "No processing results"}), 400
-
     d = request.json or {}
-    which = d.get("which", "screening")
-
-    if which == "extraction" and auto.extraction_excel and Path(auto.extraction_excel).exists():
-        return send_file(str(auto.extraction_excel), as_attachment=True)
-    elif auto.screening_excel and Path(auto.screening_excel).exists():
-        return send_file(str(auto.screening_excel), as_attachment=True)
-    else:
-        report_errors = session.get("processing_report_errors", [])
-        detail = "; ".join(report_errors) if report_errors else "Export file not found"
-        return jsonify({"error": detail}), 404
+    result = processing_service.processing_export_response(
+        session,
+        d.get("which", "screening"),
+        _current_workspace(),
+    )
+    if result.path:
+        return send_file(str(result.path), as_attachment=True)
+    return jsonify(result.payload), result.status_code
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -970,21 +1223,18 @@ def sse_events():
     def generate():
         last_idx = 0
         while True:
-            with session["progress_lock"]:
-                events = session["progress"][last_idx:]
-                last_idx = len(session["progress"])
+            state = runtime_state.event_stream(session, job_guard.active_job())
+            with state.progress_lock:
+                events = state.progress[last_idx:]
+                last_idx = len(state.progress)
 
             for ev in events:
                 yield f"data: {json.dumps(ev)}\n\n"
 
             # Also stream processing stats if active
-            auto = session.get("automation")
-            if auto:
-                stats = _processing_payload(
-                    auto,
-                    bool(session["processing_thread"] and session["processing_thread"].is_alive()),
-                )["stats"]
-                yield f"data: {json.dumps({'type': 'stats', 'data': stats})}\n\n"
+            stats_event = processing_service.processing_stats_event_payload(session, _current_workspace())
+            if stats_event:
+                yield f"data: {json.dumps(stats_event)}\n\n"
 
             time.sleep(1)
 
@@ -1001,15 +1251,20 @@ def sse_events():
 
 @app.route("/api/settings", methods=["GET"])
 def api_get_settings():
-    return jsonify(_load_webapp_settings())
+    data = _load_webapp_settings()
+    data.pop("recent_workspaces", None)
+    return jsonify(data)
 
 
 @app.route("/api/settings", methods=["POST"])
 def api_save_settings():
     d = request.json or {}
     # Strip API key before persisting
+    existing = _load_webapp_settings()
     safe = {k: v for k, v in d.items() if k != "api_key"}
-    SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
+    if "recent_workspaces" in existing and "recent_workspaces" not in safe:
+        safe["recent_workspaces"] = existing["recent_workspaces"]
+    _write_webapp_settings(safe)
     return jsonify({"status": "saved"})
 
 

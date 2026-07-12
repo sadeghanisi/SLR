@@ -397,12 +397,14 @@ class AbstractScreener:
     )
 
     def __init__(self, llm_manager, max_retries: int = 3,
-                 retry_delay: float = 1.0, rate_limit_delay: float = 0.5):
+                 retry_delay: float = 1.0, rate_limit_delay: float = 0.5, *,
+                 stop_event: Optional[threading.Event] = None):
         self.llm    = llm_manager
         self.max_retries    = max_retries
         self.retry_delay    = retry_delay
         self.rate_limit_delay = rate_limit_delay
-        self._stop  = threading.Event()
+        self._stop = stop_event if stop_event is not None else threading.Event()
+        self._owns_stop_event = stop_event is None
 
     def stop(self):
         self._stop.set()
@@ -417,7 +419,8 @@ class AbstractScreener:
         Screen records sequentially (rate-limit safe).
         callback(result, current_index, total) called after each record.
         """
-        self._stop.clear()
+        if self._owns_stop_event:
+            self._stop.clear()
         results: List[AbstractScreeningResult] = []
         total = len(records)
 
@@ -425,10 +428,13 @@ class AbstractScreener:
             if self._stop.is_set():
                 break
             res = self._screen_one(rec, criteria)
+            if self._stop.is_set():
+                break
             results.append(res)
             if callback:
                 callback(res, i + 1, total)
-            time.sleep(self.rate_limit_delay)
+            if self._stop.wait(self.rate_limit_delay):
+                break
 
         return results
 
@@ -479,7 +485,11 @@ class AbstractScreener:
                 is_rate = any(x in err for x in ("rate limit", "429", "too many"))
                 wait = (2 ** attempt) * (self.retry_delay * (3 if is_rate else 1))
                 if attempt < self.max_retries - 1:
-                    time.sleep(wait)
+                    if self._stop.wait(wait):
+                        return AbstractScreeningResult(
+                            record_id=rid, title=title,
+                            decision=DECISION_ERROR, rationale="Stopped by user",
+                        )
                 else:
                     return AbstractScreeningResult(
                         record_id=rid, title=title,

@@ -1,6 +1,5 @@
 import io
 import re
-import threading
 from pathlib import Path
 
 import pytest
@@ -27,15 +26,10 @@ def isolated_webapp(tmp_path, monkeypatch):
     webapp.session.update({
         "references": [],
         "dedup_stats": None,
-        "screening_results": [],
         "pdf_folder": "",
-        "automation": None,
-        "stop_event": threading.Event(),
-        "processing_thread": None,
-        "progress": [],
-        "progress_lock": threading.Lock(),
         "pdf_display_names": {},
     })
+    webapp.runtime_state.initialize(webapp.session)
 
     webapp.app.config.update(TESTING=True)
     return webapp
@@ -66,6 +60,36 @@ def test_webapp_settings_strip_legacy_api_key(isolated_webapp):
     assert response.status_code == 200
     assert response.get_json() == {"provider": "OpenAI"}
     assert "api_key" not in isolated_webapp.SETTINGS_FILE.read_text(encoding="utf-8")
+
+
+def test_webapp_settings_recursively_strip_nested_secrets(isolated_webapp):
+    isolated_webapp.SETTINGS_FILE.write_text(
+        """
+        {
+          "provider": "OpenAI",
+          "nested": {"api_key": "nested-secret", "safe": "kept"},
+          "profiles": [
+            {"name": "local", "token": "profile-token", "base_url": "http://127.0.0.1"}
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+    client = isolated_webapp.app.test_client()
+
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "provider": "OpenAI",
+        "nested": {"safe": "kept"},
+        "profiles": [{"name": "local", "base_url": "http://127.0.0.1"}],
+    }
+    stored = isolated_webapp.SETTINGS_FILE.read_text(encoding="utf-8")
+    assert "nested-secret" not in stored
+    assert "profile-token" not in stored
+    assert "api_key" not in stored
+    assert "token" not in stored
 
 
 @pytest.mark.parametrize("filename", ["../evil.ris", r"..\evil.ris"])
