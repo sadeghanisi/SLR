@@ -4289,11 +4289,6 @@ About This Tool
 Universal SLR / Scoping Review Automation Tool
 Version 3.5.2
 
-AUTHOR
-───────
-Farahnaz Yazdanpanah Faragheh
-LinkedIn: https://www.linkedin.com/in/farahnaz-yazdanpanah-faragheh-sleep-researcher/
-
 REPOSITORY
 ───────────
 https://github.com/sadeghanisi/SLR/

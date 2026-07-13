@@ -111,9 +111,8 @@ database.
   accept/override behavior, queue persistence, restart/reopen behavior,
   workspace summary/filter metadata, origin counts, reference-list pagination,
   recent-workspace privacy, and privacy scrubbing.
-- Co-author citation metadata for Farahnaz Yazdanpanah Faragheh, including
-  ORCID, affiliation, and LinkedIn profile references in public project
-  documentation.
+- Co-author citation metadata, including ORCID, affiliation, and public profile
+  references in project documentation.
 
 ### Changed
 
