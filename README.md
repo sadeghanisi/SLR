@@ -2,7 +2,7 @@
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/version-3.5.2-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
+[![Version](https://img.shields.io/badge/version-3.5.3-blue?style=for-the-badge)](https://github.com/sadeghanisi/SLR/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-yellow?style=for-the-badge&logo=python)](https://python.org)
 [![Providers](https://img.shields.io/badge/AI%20Providers-13-purple?style=for-the-badge)](#ai-provider-quick-reference)
@@ -108,7 +108,7 @@ The browser-based interface is located in `WebApp/`. It is a local-only UI for a
 | Local settings | Provider, model, Base URL, and criteria can persist; API keys are not saved |
 | AI processing run summary | Displays run-level identified, screened, included, excluded, flagged, and failed counts. These are not human-final PRISMA-ready counts |
 
-Version `3.5.2` adds a redesigned Workspace start screen and navigation, a persistent human review queue foundation, AI suggestions treated as non-final, human Include / Exclude / Maybe decisions as final, reference-list search/pagination with `Showing X of Y` copy, recent workspace cards, and workspace export generation for PRISMA-ready reporting data and a methods disclosure draft. AI suggestions are not final decisions in workspace mode; a human Include / Exclude / Maybe decision is required.
+Version `3.5.3` includes a redesigned Workspace start screen and navigation, a persistent human review queue foundation, AI suggestions treated as non-final, human Include / Exclude / Maybe decisions as final, reference-list search/pagination with `Showing X of Y` copy, recent workspace cards, and workspace export generation for PRISMA-ready reporting data and a methods disclosure draft. AI suggestions are not final decisions in workspace mode; a human Include / Exclude / Maybe decision is required.
 
 If the review queue shows fewer records than you imported, check the queue filters. For example, importing 900 references may still show only 5 queue rows when Status is set to Suggested, or when the origin filter is set to PDF-only records.
 
@@ -286,7 +286,7 @@ SLR/
 | Workspace review queue is empty | Import references or upload/process PDFs while a workspace is open. Legacy no-workspace runs do not populate the workspace queue |
 | Imported many records but only a few queue items are visible | Clear the review queue filters or switch Status, Stage, and Origin to All. Suggested, PDF-only, and other filtered views can show a small subset of the workspace |
 | Full-text exclude is rejected | Choose an exclusion reason before saving a full-text Exclude decision |
-| Web App counters/results/export look stale | Refresh the browser, check `/api/processing/results`, and review the server terminal/output log. Versions `3.5.2` and newer fix known stale counter/report visibility issues from earlier builds |
+| Web App counters/results/export look stale | Refresh the browser, check `/api/processing/results`, and review the server terminal/output log. Versions `3.5.3` and newer fix known stale counter/report visibility issues from earlier builds |
 | Export file missing | Check the output folder and the Web App report warnings; failed report generation should now be surfaced instead of silently completing |
 | Workspace export is missing | Open a workspace, go to Results, use Generate workspace exports, and check the workspace `exports/<export_id>/` folder. Legacy no-workspace exports remain separate |
 

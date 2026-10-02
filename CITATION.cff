@@ -12,8 +12,8 @@ authors:
     affiliation: University of Surrey
 repository-code: https://github.com/sadeghanisi/SLR
 license: MIT
-version: 3.5.2
-date-released: 2026-07-12
+version: 3.5.3
+date-released: 2026-10-02
 abstract: Local-first, AI-assisted tool for systematic and scoping review workflows.
 keywords:
   - systematic literature review

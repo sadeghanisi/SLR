@@ -2377,7 +2377,7 @@ HARDWARE AND SYSTEM REQUIREMENTS
   For models >7B parameters: dedicated GPU with 8–16 GB VRAM
 """),
         "overview": ("""\
-Universal SLR / Scoping Review Assistant  —  v3.5.2
+Universal SLR / Scoping Review Assistant  —  v3.5.3
 ════════════════════════════════════════════════════════
 
 WHAT IS THIS TOOL?
@@ -4212,7 +4212,7 @@ Q: How do I report AI use in my methods section?
 ──────────────────────────────────────────────────
   Example text you can adapt:
   "Title and abstract screening was conducted using an AI-assisted
-  screening tool powered by [Provider] [Model] (v3.5.2). Criteria were
+  screening tool powered by [Provider] [Model] (v3.5.3). Criteria were
   defined a priori based on our PICO framework. All Include and Flag
   decisions were independently verified by [reviewer name(s)].
   Data extraction from included full texts applied a Quote-Then-Answer
@@ -4384,7 +4384,7 @@ About This Tool
 ═══════════════
 
 Universal SLR / Scoping Review Automation Tool
-Version 3.5.2
+Version 3.5.3
 
 REPOSITORY
 ───────────

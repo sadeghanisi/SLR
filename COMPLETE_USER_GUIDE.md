@@ -1027,10 +1027,10 @@ You are charged for both input tokens (what you send to the AI) and output token
 
 ### Web App counters, results, or exports look wrong
 
-**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.5.2` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
+**Cause**: Older builds could show stale PDF decision counters or report visibility after processing. Version `3.5.3` fixes the known stale WebApp PDF counters/results/report issue by deriving counters from the actual result records and surfacing report errors.
 
 **Solution**:
-1. Confirm you are running version `3.5.2` or newer.
+1. Confirm you are running version `3.5.3` or newer.
 2. Refresh the browser page and open the Results stage again.
 3. Check the server terminal and `slr_automation.log` for report-generation warnings.
 4. If exports are missing, check the output folder for the generated `.xlsx`, `.csv`, summary, and audit files.
@@ -1236,7 +1236,7 @@ These shortcuts work when the application window is in focus:
 
 ---
 
-*This guide covers the tool's full functionality as of version 3.5.2*
+*This guide covers the tool's full functionality as of version 3.5.3*
 
 *For systematic reviews, always consult your institution's research methods guidance and report AI-assisted screening transparently in your methods section.*
 
@@ -1246,7 +1246,7 @@ These shortcuts work when the application window is in focus:
 
 The SLR Assistant includes a **browser-based web application** in the `WebApp/` folder. This is an alternative to the desktop GUI. Everything runs locally in your browser and on a Flask server bound to `127.0.0.1` on your own computer. It is not intended for public deployment, shared servers, or multi-user hosting.
 
-Version `3.5.2` adds a redesigned Workspace start screen and navigation, a persistent human review queue foundation, AI suggestions treated as non-final, human Include / Exclude / Maybe decisions as final, reference-list search and pagination, recent workspace cards, and workspace export bundles with PRISMA-ready counts and a methods disclosure draft generated from the workspace database. AI results are stored as suggestions; human decisions are stored separately as final decisions. The Web App also labels Workspace Mode versus Legacy Mode and explains filtered queue counts so large imports are not confused with small filtered review views.
+Version `3.5.3` includes a redesigned Workspace start screen and navigation, a persistent human review queue foundation, AI suggestions treated as non-final, human Include / Exclude / Maybe decisions as final, reference-list search and pagination, recent workspace cards, and workspace export bundles with PRISMA-ready counts and a methods disclosure draft generated from the workspace database. AI results are stored as suggestions; human decisions are stored separately as final decisions. The Web App also labels Workspace Mode versus Legacy Mode and explains filtered queue counts so large imports are not confused with small filtered review views.
 
 ### What Is Different About the Web App?
 
