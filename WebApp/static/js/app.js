@@ -139,13 +139,13 @@ reviewSummary: null,
 
   function decisionBadge(decision) {
     const cls = decisionClass(decision);
-    return `<span class="decision-badge ${cls}">${decision || "—"}</span>`;
+    return `<span class="decision-badge ${cls}">${escHtml(decision || "—")}</span>`;
   }
 
   function escHtml(s) {
     const d = document.createElement("div");
     d.textContent = s || "";
-    return d.innerHTML;
+    return d.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   function logLine(msg) {
@@ -924,7 +924,7 @@ stats.innerHTML = `<span class="stat-chip">${data.count} records found</span>`;
         renderImportSummary(S.lastImportSummary);
         showToast(`Successfully parsed ${data.count} references`, "success");
       } catch (e) {
-        stats.innerHTML = `<span style="color:var(--reject)">${e.message}</span>`;
+        stats.innerHTML = `<span style="color:var(--reject)">${escHtml(e.message)}</span>`;
         showToast("Parse failed: " + e.message, "error");
       }
       setButtonLoading(btn, false);
@@ -973,7 +973,7 @@ renderImportSummary(S.lastImportSummary);
         await refreshRefTable();
         if (S.workspace) await loadReviewQueue();
       } catch (e) {
-        stats.innerHTML += ` <span style="color:var(--reject)">${e.message}</span>`;
+        stats.innerHTML += ` <span style="color:var(--reject)">${escHtml(e.message)}</span>`;
         showToast("Deduplication failed: " + e.message, "error");
       }
       setButtonLoading(btn, false);
@@ -1118,7 +1118,7 @@ renderImportSummary(S.lastImportSummary);
       updateScreenProgress(0, S.refCount);
 
       try {
-        await api("/api/screening/start", {
+        const startResponse = await api("/api/screening/start", {
           method: "POST",
           body: {
             provider: S.config.provider,
@@ -1129,19 +1129,23 @@ renderImportSummary(S.lastImportSummary);
             rate_delay: 0.5,
           },
         });
+        const started = await startResponse.json();
+        const expectedTotal = started.total;
+        if (pollId) clearInterval(pollId);
 
         pollId = setInterval(async () => {
           try {
-            const resp = await api("/api/screening/results");
+            const resp = await api("/api/screening/results?status=1");
             const data = await resp.json();
             const done = data.total;
-            updateScreenProgress(done, S.refCount);
+            updateScreenProgress(done, expectedTotal);
             renderScreeningInRefTable(data.results);
 
-            if (done >= S.refCount) {
+            if (!data.active || done >= expectedTotal) {
               clearInterval(pollId);
               setButtonLoading($("#startScreenBtn"), false);
               $("#stopScreenBtn").disabled = true;
+              if (data.error) showToast(data.error, 'error');
               if (S.workspace) await loadReviewQueue();
             }
           } catch (e) { /* ignore polling errors */ }
@@ -1149,6 +1153,7 @@ renderImportSummary(S.lastImportSummary);
       } catch (e) {
         showToast("Screening failed: " + e.message, "error");
         setButtonLoading($("#startScreenBtn"), false);
+        $("#stopScreenBtn").disabled = true;
       }
     });
 
@@ -1648,7 +1653,8 @@ meta.innerHTML = [
       const ai = item.latest_ai_suggestion;
       const human = item.latest_human_decision;
       const title = item.display_title || item.title || item.pdf_display_name || item.record_id;
-      const meta = [item.authors, item.year, item.pdf_display_name].filter(Boolean).join(" · ");
+      const pdfState = item.pdf_state === "deleted" ? "PDF deleted" : item.scope_type === "legacy_unknown" ? "Historical scope unknown" : "";
+      const meta = [item.authors, item.year, item.pdf_display_name, pdfState].filter(Boolean).join(" · ");
       const origin = item.record_origin || "";
       const reasonSelected = human && human.exclusion_reason_id ? human.exclusion_reason_id : "";
       const isFullText = item.stage === "full_text";

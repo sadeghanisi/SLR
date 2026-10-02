@@ -22,12 +22,17 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 import hashlib
-from llm_interface import LLMManager
+import uuid
+from atomic_files import atomic_output, atomic_write_text, atomic_open
+from llm_interface import LLMManager, LLMCallError
+from spreadsheet_safety import csv_row, literal_workbook
+from url_privacy import redact_url
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 from version import VERSION as __version__
 
-CACHE_SCHEMA_VERSION = "2"
+CACHE_SCHEMA_VERSION = "3"
+_PDF_EXTRACTION_LOCK = threading.Lock()
 
 
 def _canonical_json(data: Any) -> str:
@@ -39,6 +44,10 @@ def _canonical_json(data: Any) -> str:
         separators=(",", ":"),
         default=str,
     )
+
+
+def _render_paper_prompt(prompt: str, text: str) -> str:
+    return prompt.replace('{{', '{').replace('}}', '}').replace('{text}', text)
 
 
 def _hash_utf8(text: str) -> str:
@@ -76,10 +85,10 @@ def _without_secrets(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def setup_logging(log_file: str = 'slr_automation.log') -> logging.Logger:
     """Setup enhanced logging configuration"""
-    logger = logging.getLogger('SLR_Automation')
+    # A run owns its handlers; concurrent runs must not redirect each other's logs.
+    logger = logging.Logger('SLR_Automation')
+    logger.parent = logging.getLogger()
     logger.setLevel(logging.INFO)
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
     formatter = logging.Formatter(
         '%(asctime)s [%(levelname)s] %(funcName)s: %(message)s'
     )
@@ -151,7 +160,7 @@ def _parse_json_response(raw: str) -> Dict:
     Extract JSON from an LLM response even when wrapped in markdown fences,
     mixed with prose, or containing minor syntax errors.
     """
-    if not raw:
+    if not isinstance(raw, str) or not raw.strip():
         raise ValueError("Empty LLM response")
 
     # Strip ```json ... ``` or ``` ... ```
@@ -160,7 +169,10 @@ def _parse_json_response(raw: str) -> Dict:
 
     # Direct parse
     try:
-        return json.loads(cleaned)
+        data = json.loads(cleaned)
+        if not isinstance(data, dict):
+            raise ValueError("LLM response must be a JSON object")
+        return data
     except json.JSONDecodeError:
         pass
 
@@ -168,7 +180,10 @@ def _parse_json_response(raw: str) -> Dict:
     m = re.search(r'\{.*\}', cleaned, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group())
+            data = json.loads(m.group())
+            if not isinstance(data, dict):
+                raise ValueError("LLM response must be a JSON object")
+            return data
         except json.JSONDecodeError:
             pass
 
@@ -223,12 +238,23 @@ class SystematicReviewAutomation:
         self.stop_event          = stop_event or threading.Event()
 
         adv = advanced_config or {}
+        self.max_workers = adv.get('max_workers', self.max_workers)
+        self.cache_enabled = bool(adv.get('use_cache', self.cache_enabled))
+        self.dry_run = bool(adv.get('dry_run', False))
+        self.skip_pages = int(adv.get('skip_pages', 0))
+        self.output_format = adv.get('output_format', 'both')
+        self.include_excluded = bool(adv.get('include_excluded', True))
+        if self.skip_pages < 0 or self.output_format not in {'csv', 'excel', 'both'}:
+            raise ValueError('Invalid page skip or output format')
         self.include_subfolders         = bool(
             adv.get('include_subfolders', False)
             if include_subfolders is None
             else include_subfolders
         )
-        self.max_text_chars             = adv.get('max_text_chars', 100000)
+        self.max_text_chars             = adv.get('max_chars', adv.get('max_text_chars', 100000))
+        self.two_stage_chars            = adv.get('two_stage_chars', 3000)
+        self.temperature                = adv.get('temperature', 0.05)
+        self.max_output_tokens          = adv.get('max_tokens', 4000)
         self.max_retries                = adv.get('max_retries', 3)
         self.retry_delay_base           = adv.get('retry_delay', 0.5)
         self.retry_jitter               = adv.get('retry_jitter', 0.1)
@@ -241,6 +267,8 @@ class SystematicReviewAutomation:
             'abstract', 'introduction', 'method', 'result', 'discussion', 'conclusion'
         ])
         self.strip_references           = adv.get('strip_references', True)
+        if self.max_workers < 1 or self.intermediate_save_interval < 1 or self.max_text_chars < 1:
+            raise ValueError("Workers, save interval, and text limit must be positive")
         self._advanced_config_for_cache = {
             'max_text_chars': self.max_text_chars,
             'max_retries': self.max_retries,
@@ -249,6 +277,11 @@ class SystematicReviewAutomation:
             'enable_smart_truncation': self.enable_smart_truncation,
             'preserve_sections': self.preserve_sections,
             'strip_references': self.strip_references,
+            'temperature': self.temperature,
+            'max_tokens': self.max_output_tokens,
+            'two_stage_chars': self.two_stage_chars,
+            'dry_run': self.dry_run,
+            'skip_pages': self.skip_pages,
         }
 
         # Extraction fields define the CSV/Excel columns for extracted data
@@ -267,24 +300,38 @@ class SystematicReviewAutomation:
         self.logger = setup_logging(str(self.output_folder / 'slr_automation.log'))
 
         # LLM
-        self.llm_manager = self._init_llm()
+        try:
+            self.llm_manager = None if self.dry_run else self._init_llm()
+        except Exception:
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
+            raise
 
-        # Cache
-        self.cache_folder = Path(cache_folder) if cache_folder else self.output_folder / 'cache'
-        if self.cache_enabled:
-            self.cache_folder.mkdir(parents=True, exist_ok=True)
-        self.text_cache_folder = Path(text_cache_folder) if text_cache_folder else self.output_folder / 'text_cache'
-        self.text_cache_folder.mkdir(parents=True, exist_ok=True)
+        try:
+            # Cache
+            self.cache_folder = Path(cache_folder) if cache_folder else self.output_folder / 'cache'
+            if self.cache_enabled:
+                self.cache_folder.mkdir(parents=True, exist_ok=True)
+            self.text_cache_folder = Path(text_cache_folder) if text_cache_folder else self.output_folder / 'text_cache'
+            self.text_cache_folder.mkdir(parents=True, exist_ok=True)
 
-        # Timestamped output files
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.screening_csv    = self.output_folder / f"screening_{ts}.csv"
-        self.extraction_csv   = self.output_folder / f"extraction_{ts}.csv"
-        self.screening_excel  = self.output_folder / f"screening_{ts}.xlsx"
-        self.extraction_excel = self.output_folder / f"extraction_{ts}.xlsx"
-        self.summary_report   = self.output_folder / f"summary_{ts}.txt"
-        self.audit_ledger     = Path(audit_ledger) if audit_ledger else self.output_folder / f"audit_{ts}.jsonl"
-        self.audit_ledger.parent.mkdir(parents=True, exist_ok=True)
+            # Timestamped output files
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+            self.screening_csv    = self.output_folder / f"screening_{ts}.csv"
+            self.extraction_csv   = self.output_folder / f"extraction_{ts}.csv"
+            self.screening_excel  = self.output_folder / f"screening_{ts}.xlsx"
+            self.extraction_excel = self.output_folder / f"extraction_{ts}.xlsx"
+            self.summary_report   = self.output_folder / f"summary_{ts}.txt"
+            self.audit_ledger     = Path(audit_ledger) if audit_ledger else self.output_folder / f"audit_{ts}.jsonl"
+            self.audit_ledger.parent.mkdir(parents=True, exist_ok=True)
+
+        except Exception:
+            try:
+                self.close()
+            except Exception:
+                pass  # Preserve the initialization error after releasing owned handlers.
+            raise
 
         # Results
         self.screening_results:  List[ScreeningResult]  = []
@@ -293,9 +340,11 @@ class SystematicReviewAutomation:
         self._paper_text_metadata: Dict[str, Dict[str, Any]] = {}
         self._last_text_extraction_metadata: Dict[str, Dict[str, Any]] = {}
         self._last_llm_call_metadata: Dict[str, Any] = {}
+        self._llm_thread_local = threading.local()
 
         # Thread-safe stats
         self._lock = threading.Lock()
+        self._run_lock = threading.Lock()
         self._audit_lock = threading.Lock()
         self.stats = {
             'total_files':         0,
@@ -310,6 +359,16 @@ class SystematicReviewAutomation:
             'total_api_tokens':    0,
             'current_file':        '',
         }
+
+    def close(self):
+        try:
+            closer = getattr(self.llm_manager, 'close', None)
+            if callable(closer):
+                closer()
+        finally:
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
 
     # -- PDF discovery -------------------------------------------------------
 
@@ -391,7 +450,8 @@ class SystematicReviewAutomation:
         return {
             'provider': self.llm_provider,
             'model': self.llm_model,
-            'base_url': _without_secrets(self.llm_kwargs).get('base_url'),
+            'base_url': redact_url(self.llm_kwargs.get('base_url')),
+            'options_hash': _sha256_json(self.llm_kwargs),
         }
 
     def _extraction_prompt_fingerprint_source(self) -> Dict[str, Any]:
@@ -536,6 +596,15 @@ class SystematicReviewAutomation:
                 if expected_context is None:
                     return data if isinstance(data, dict) else None
                 if isinstance(data, dict) and self._cache_metadata_matches(data, expected_context, kind):
+                    if kind == 'screening':
+                        if (data.get('decision') not in {d.value for d in ScreeningDecision if d != ScreeningDecision.ERROR}
+                                or any(not isinstance(data.get(name), str) for name in ('reasoning', 'notes'))
+                                or data.get('stage') != expected_context.get('stage')):
+                            return None
+                    elif kind == 'extraction':
+                        fields = data.get('fields')
+                        if not isinstance(fields, dict) or not all(f in fields for f in self.extraction_fields):
+                            return None
                     return data
             except Exception:
                 pass
@@ -545,8 +614,9 @@ class SystematicReviewAutomation:
         if not self.cache_enabled:
             return
         try:
-            with open(self.cache_folder / f"{kind}_{key}.json", 'w', encoding='utf-8') as f:
-                json.dump(data, f)
+            with atomic_output(self.cache_folder / f"{kind}_{key}.json") as temporary:
+                with temporary.open('w', encoding='utf-8') as f:
+                    json.dump(data, f)
         except Exception as e:
             self.logger.warning(f"Cache write: {e}")
 
@@ -584,7 +654,7 @@ class SystematicReviewAutomation:
         try:
             self.text_cache_folder.mkdir(parents=True, exist_ok=True)
             if not cache_path.exists():
-                cache_path.write_text(text, encoding='utf-8')
+                atomic_write_text(cache_path, text)
         except Exception as e:
             self.logger.warning(f"Text cache write failed ({filename}): {e}")
 
@@ -600,7 +670,7 @@ class SystematicReviewAutomation:
         self._paper_text_metadata[filename] = asdict(metadata)
         metadata_path = self.text_cache_folder / f"{text_hash}.json"
         try:
-            metadata_path.write_text(
+            atomic_write_text(metadata_path,
                 _canonical_json(self._paper_text_metadata[filename]),
                 encoding='utf-8',
             )
@@ -664,18 +734,18 @@ class SystematicReviewAutomation:
         for p in rest:
             if len(result) + len(p) + 2 <= max_chars:
                 result += '\n\n' + p
-        return result[:max_chars]
+        return (result or text)[:max_chars]
 
     # ── LLM call with retry ──────────────────────────────────────────────────
 
     def _sync_llm_call_metadata(self) -> Dict[str, Any]:
         getter = getattr(self.llm_manager, "get_last_call_metadata", None)
         if callable(getter):
-            self._last_llm_call_metadata = getter()
-        return dict(self._last_llm_call_metadata)
+            self._llm_thread_local.metadata = getter()
+        return dict(getattr(self._llm_thread_local, 'metadata', {}))
 
     def _audit_llm_metadata(self) -> Dict[str, Any]:
-        metadata = dict(self._last_llm_call_metadata or {})
+        metadata = dict(getattr(self._llm_thread_local, 'metadata', {}))
         return {
             'retry_count': int(metadata.get('retry_count', 0) or 0),
             'final_status': metadata.get('final_status'),
@@ -694,6 +764,7 @@ class SystematicReviewAutomation:
                 retry_max_attempts=self.max_retries,
                 retry_delay=self.retry_delay_base,
                 retry_jitter=self.retry_jitter,
+                retry_stop_event=self.stop_event,
                 **kwargs,
             )
         finally:
@@ -709,6 +780,9 @@ class SystematicReviewAutomation:
                 retry_max_attempts=self.max_retries,
                 retry_delay=self.retry_delay_base,
                 retry_jitter=self.retry_jitter,
+                retry_stop_event=self.stop_event,
+                temperature=self.temperature,
+                max_tokens=self.max_output_tokens,
             )
         finally:
             self._sync_llm_call_metadata()
@@ -716,6 +790,12 @@ class SystematicReviewAutomation:
     # ── PDF extraction ───────────────────────────────────────────────────────
 
     def extract_text_from_pdf(self, pdf_path: Path) -> Tuple[str, bool]:
+        # PyMuPDF's native engine does not support concurrent thread use.
+        # Keep provider calls parallel while serializing document conversion.
+        with _PDF_EXTRACTION_LOCK:
+            return self._extract_pdf_text(pdf_path)
+
+    def _extract_pdf_text(self, pdf_path: Path) -> Tuple[str, bool]:
         """
         Convert PDF to Markdown text using PyMuPDF4LLM (best quality: preserves
         reading order, multi-column layouts, and tables).
@@ -724,7 +804,16 @@ class SystematicReviewAutomation:
         # Primary: PyMuPDF4LLM — academic-grade PDF → Markdown conversion
         try:
             import pymupdf4llm
-            md_text = pymupdf4llm.to_markdown(str(pdf_path))
+            if self.skip_pages:
+                import pymupdf
+                with pymupdf.open(pdf_path) as document:
+                    pages = list(range(self.skip_pages, document.page_count))
+                if not pages:
+                    self._record_text_extraction_metadata(pdf_path, method='pymupdf4llm', status='no_extractable_text')
+                    return 'Error: No pages remain after skipping cover pages', False
+                md_text = pymupdf4llm.to_markdown(str(pdf_path), pages=pages)
+            else:
+                md_text = pymupdf4llm.to_markdown(str(pdf_path))
             if md_text.strip():
                 if self.strip_references:
                     md_text = self._strip_references_from_md(md_text)
@@ -746,7 +835,7 @@ class SystematicReviewAutomation:
             import pdfplumber
             with pdfplumber.open(pdf_path) as pdf:
                 page_count = len(pdf.pages)
-                text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+                text = "\n".join((p.extract_text() or "") for p in pdf.pages[self.skip_pages:])
             if text.strip():
                 if self.strip_references:
                     text = self._strip_references_from_md(text)
@@ -780,6 +869,8 @@ class SystematicReviewAutomation:
                 page_count = len(reader.pages)
                 page_texts = []
                 for i, page in enumerate(reader.pages):
+                    if i < self.skip_pages:
+                        continue
                     try:
                         page_texts.append(page.extract_text() or "")
                     except Exception as pe:
@@ -870,6 +961,7 @@ class SystematicReviewAutomation:
 
     def screen_article(self, text: str, filename: str, stage: str = "Full-text") -> ScreeningResult:
         start = time.time()
+        tokens = 0
         cache_context = self._cache_key_context(
             kind='screening',
             text=text,
@@ -879,7 +971,7 @@ class SystematicReviewAutomation:
         cache_key = cache_context['cache_key']
         cached = self._cache_load(cache_key, 'screening', expected_context=cache_context)
         if cached:
-            cached.update({'filename': filename, 'processing_time': time.time() - start})
+            cached.update({'filename': filename, 'processing_time': time.time() - start, 'api_tokens_used': 0})
             # Only pass fields that exist in the dataclass
             valid = {k: cached[k] for k in ScreeningResult.__dataclass_fields__ if k in cached}
             result = ScreeningResult(**valid)
@@ -896,17 +988,23 @@ class SystematicReviewAutomation:
 
         try:
             snippet = (
-                text[:3000]  # title/abstract only for stage-1
+                text[:self.two_stage_chars]  # title/abstract only for stage-1
                 if stage == "Title/Abstract"
                 else self._smart_truncate(text, self.max_text_chars)
             )
             messages = [
                 {"role": "system", "content": "You are a systematic review assistant. Only return valid JSON."},
-                {"role": "user",   "content": self.screening_prompt.format(text=snippet)},
+                {"role": "user",   "content": _render_paper_prompt(self.screening_prompt, snippet)},
             ]
-            raw, tokens = self._llm_call(messages, temperature=0.05, max_tokens=1500)
+            raw, tokens = self._llm_call(messages, temperature=self.temperature, max_tokens=min(1500, self.max_output_tokens))
+            with self._lock:
+                self.stats['total_api_tokens'] += tokens
             llm_metadata = self._audit_llm_metadata()
             data = _parse_json_response(raw)
+            if (data.get('decision') not in {d.value for d in ScreeningDecision if d != ScreeningDecision.ERROR}
+                    or data.get('notes') == 'Malformed LLM response; raw response content was not stored.'
+                    or any(not isinstance(data.get(name, ''), str) for name in ('reasoning', 'notes'))):
+                raise ValueError('Invalid screening response schema or decision')
 
             result = ScreeningResult(
                 filename=filename,
@@ -925,12 +1023,6 @@ class SystematicReviewAutomation:
             cache_data['cache_metadata'] = cache_context
             self._cache_save(cache_key, 'screening', cache_data)
 
-            with self._lock:
-                self.stats['total_api_tokens'] += tokens
-                dk = result.decision.lower().replace(' ', '_')
-                if dk in self.stats:
-                    self.stats[dk] += 1
-
             self._write_audit_event(
                 kind='screening',
                 filename=filename,
@@ -946,7 +1038,8 @@ class SystematicReviewAutomation:
         except InterruptedError:
             raise
         except Exception as e:
-            self.logger.error(f"Screening error {filename}: {e}\n{traceback.format_exc()}")
+            safe_error = str(e) if isinstance(e, LLMCallError) else f"Screening failed ({type(e).__name__})"
+            self.logger.error(f"Screening error {filename}: {safe_error}")
             self._write_audit_event(
                 kind='screening',
                 filename=filename,
@@ -956,22 +1049,25 @@ class SystematicReviewAutomation:
                 status='error',
                 parse_status='error',
                 **self._audit_llm_metadata(),
-                error=str(e),
+                error=safe_error,
+                tokens=tokens,
             )
             return ScreeningResult(
                 filename=filename,
                 decision=ScreeningDecision.ERROR.value,
-                reasoning=str(e),
+                reasoning=safe_error,
                 notes="Screening failed",
                 stage=stage,
                 processing_time=time.time() - start,
                 text_length=len(text),
+                api_tokens_used=tokens,
             )
 
     # ── Extraction ───────────────────────────────────────────────────────────
 
     def extract_data(self, text: str, filename: str) -> ExtractionResult:
         start = time.time()
+        tokens = 0
         cache_context = self._cache_key_context(
             kind='extraction',
             text=text,
@@ -984,7 +1080,7 @@ class SystematicReviewAutomation:
                 filename=filename,
                 fields=cached.get('fields', {}),
                 processing_time=time.time() - start,
-                api_tokens_used=cached.get('api_tokens_used', 0),
+                api_tokens_used=0,
             )
             self._write_audit_event(
                 kind='extraction',
@@ -1000,24 +1096,21 @@ class SystematicReviewAutomation:
 
             # Build Quote-Then-Answer prompt — forces the model to ground each
             # extracted value in a verbatim sentence from the paper.
-            qa_lines = ""
+            qa_lines = []
             for f in self.extraction_fields:
                 safe = f.lower().replace(" ", "_").replace("-", "_")
-                qa_lines += (
-                    f'    "{safe}_quote": "verbatim sentence(s) from the text about {f}",\n'
-                    f'    "{safe}": "extracted value for {f}, or Not reported",\n'
-                )
+                qa_lines.extend([
+                    f'    {json.dumps(safe + "_quote")}: "verbatim sentence(s) from the text",',
+                    f'    {json.dumps(safe)}: "extracted value, or Not reported",',
+                ])
             qa_prompt = (
-                "You are an expert data extractor for academic systematic/scoping reviews.\n"
+                _render_paper_prompt(self.extraction_prompt, chunk) + "\n\n"
                 "Apply the Quote-Then-Answer method for every field:\n"
                 "  1. Copy a verbatim sentence from the paper as the field_quote.\n"
                 "  2. Write the extracted value based ONLY on that quote.\n"
                 "  3. If no relevant text exists, set both field_quote and field to 'Not reported'.\n\n"
-                f"Paper text:\n{chunk}\n\n"
                 "Return ONLY valid JSON (no prose, no markdown fences):\n"
-                "{{\n"
-                f"{qa_lines}"
-                "}}"
+                "{\n" + "\n".join(qa_lines).rstrip(',') + "\n}"
             )
             messages = [
                 {"role": "system", "content": "You extract structured data from research papers. Return only valid JSON."},
@@ -1032,16 +1125,35 @@ class SystematicReviewAutomation:
                     structured, tokens = self._llm_structured_call(messages, schema)
                     if structured is not None:
                         data = structured.model_dump()
+                except InterruptedError:
+                    raise
                 except Exception as se:
+                    if isinstance(se, LLMCallError) and se.category not in {'unsupported_feature', 'malformed_request'}:
+                        raise
                     self.logger.warning(
                         f"Structured output failed ({filename}), falling back to JSON parse: {se}"
                     )
 
             # Fallback: plain LLM call + regex JSON extraction
             if data is None:
-                raw, tokens = self._llm_call(messages, temperature=0.05, max_tokens=4000)
+                raw, tokens = self._llm_call(messages, temperature=self.temperature, max_tokens=self.max_output_tokens)
+                with self._lock:
+                    self.stats['total_api_tokens'] += tokens
                 data = _parse_json_response(raw)
+            else:
+                with self._lock:
+                    self.stats['total_api_tokens'] += tokens
             llm_metadata = self._audit_llm_metadata()
+            if not isinstance(data, dict) or not any(
+                f in data or f.lower().replace(' ', '_').replace('-', '_') in data
+                for f in self.extraction_fields
+            ):
+                raise ValueError('Invalid extraction response schema')
+            for f in self.extraction_fields:
+                safe = f.lower().replace(' ', '_').replace('-', '_')
+                data[f] = data.get(safe, data.get(f, 'Not reported'))
+                if safe + '_quote' in data:
+                    data[f + '_quote'] = data[safe + '_quote']
 
             result = ExtractionResult(
                 filename=filename,
@@ -1055,8 +1167,6 @@ class SystematicReviewAutomation:
                 'api_tokens_used': tokens,
                 'cache_metadata': cache_context,
             })
-            with self._lock:
-                self.stats['total_api_tokens'] += tokens
             self._write_audit_event(
                 kind='extraction',
                 filename=filename,
@@ -1070,7 +1180,8 @@ class SystematicReviewAutomation:
         except InterruptedError:
             raise
         except Exception as e:
-            self.logger.error(f"Extraction error {filename}: {e}\n{traceback.format_exc()}")
+            safe_error = str(e) if isinstance(e, LLMCallError) else f"Extraction failed ({type(e).__name__})"
+            self.logger.error(f"Extraction error {filename}: {safe_error}")
             self._write_audit_event(
                 kind='extraction',
                 filename=filename,
@@ -1079,12 +1190,14 @@ class SystematicReviewAutomation:
                 status='error',
                 parse_status='error',
                 **self._audit_llm_metadata(),
-                error=str(e),
+                error=safe_error,
+                tokens=tokens,
             )
             return ExtractionResult(
                 filename=filename,
                 fields={f: "Error" for f in self.extraction_fields},
                 processing_time=time.time() - start,
+                api_tokens_used=tokens,
             )
 
     # ── Single-PDF dispatcher ────────────────────────────────────────────────
@@ -1113,6 +1226,10 @@ class SystematicReviewAutomation:
                 notes="PDF extraction failed",
             ), None
 
+        if self.dry_run:
+            return ScreeningResult(pdf_name, ScreeningDecision.FLAG_FOR_HUMAN.value,
+                                   "Dry run: text extracted; no AI calls made.", ""), None
+
         # Optional stage-1: title/abstract quick screen
         if self.two_stage_screening:
             s1 = self.screen_article(text, pdf_name, stage="Title/Abstract")
@@ -1125,13 +1242,32 @@ class SystematicReviewAutomation:
         # Data extraction only for included papers
         extraction = None
         if screening.decision == ScreeningDecision.LIKELY_INCLUDE.value and not self.stop_event.is_set():
-            extraction = self.extract_data(text, pdf_name)
+            try:
+                extraction = self.extract_data(text, pdf_name)
+            except InterruptedError:
+                return screening, None
 
         return screening, extraction
 
     # ── Batch runner ─────────────────────────────────────────────────────────
 
     def process_pdfs(self) -> Dict:
+        if not self._run_lock.acquire(blocking=False):
+            raise RuntimeError('This processor already has an active batch')
+        try:
+            self.screening_results.clear()
+            self.extraction_results.clear()
+            self._paper_texts.clear()
+            self._paper_text_metadata.clear()
+            self._last_text_extraction_metadata.clear()
+            with self._lock:
+                for key in self.stats:
+                    self.stats[key] = '' if key == 'current_file' else 0
+            return self._process_batch()
+        finally:
+            self._run_lock.release()
+
+    def _process_batch(self) -> Dict:
         pdf_files = self._discover_pdf_files()
         with self._lock:
             self.stats['total_files'] = len(pdf_files)
@@ -1156,6 +1292,9 @@ class SystematicReviewAutomation:
                     self.stats['processed_files'] += 1
                     if sr.decision == "Error":
                         self.stats['failed_files'] += 1
+                    key = sr.decision.lower().replace(' ', '_')
+                    if key in self.stats:
+                        self.stats[key] += 1
             if er:
                 self.extraction_results.append(er)
             if self.stats['processed_files'] % self.intermediate_save_interval == 0:
@@ -1166,16 +1305,18 @@ class SystematicReviewAutomation:
                 fmap = {ex.submit(self._process_one, f): f for f in pdf_files}
                 for future in as_completed(fmap):
                     if self.stop_event.is_set():
-                        ex.shutdown(wait=False, cancel_futures=True)
-                        self.logger.info("Processing stopped by user — saving partial results")
-                        break
+                        for pending in fmap:
+                            pending.cancel()
+                    if future.cancelled():
+                        continue
                     try:
                         record(*future.result())
+                    except InterruptedError:
+                        continue
                     except Exception as e:
                         f = fmap[future]
                         self.logger.error(f"Worker crashed on {self._pdf_display_name(f)}: {e}")
-                        with self._lock:
-                            self.stats['failed_files'] += 1
+                        record(ScreeningResult(self._pdf_display_name(f), "Error", "Worker failed", "Processing failed"), None)
         else:
             for pdf_file in pdf_files:
                 if self.stop_event.is_set():
@@ -1183,10 +1324,11 @@ class SystematicReviewAutomation:
                     break
                 try:
                     record(*self._process_one(pdf_file))
+                except InterruptedError:
+                    break
                 except Exception as e:
                     self.logger.error(f"Error on {self._pdf_display_name(pdf_file)}: {e}")
-                    with self._lock:
-                        self.stats['failed_files'] += 1
+                    record(ScreeningResult(self._pdf_display_name(pdf_file), "Error", "Worker failed", "Processing failed"), None)
 
         with self._lock:
             self.stats['total_processing_time'] = time.time() - t0
@@ -1222,17 +1364,20 @@ class SystematicReviewAutomation:
 
     def write_screening_csv(self):
         try:
-            with open(self.screening_csv, 'w', newline='', encoding='utf-8') as f:
+            with atomic_open(self.screening_csv, 'w', newline='', encoding='utf-8') as f:
                 w = csv.DictWriter(f, fieldnames=self._screening_headers(), extrasaction='ignore')
                 w.writeheader()
                 for r in self.screening_results:
-                    w.writerow(asdict(r))
+                    if not self.include_excluded and r.decision == ScreeningDecision.LIKELY_EXCLUDE.value:
+                        continue
+                    w.writerow(csv_row(asdict(r)))
         except Exception as e:
             self.logger.error(f"Screening CSV: {e}")
+            raise
 
     def write_extraction_csv(self):
         try:
-            with open(self.extraction_csv, 'w', newline='', encoding='utf-8') as f:
+            with atomic_open(self.extraction_csv, 'w', newline='', encoding='utf-8') as f:
                 w = csv.DictWriter(f, fieldnames=self._extraction_headers(), extrasaction='ignore')
                 w.writeheader()
                 for r in self.extraction_results:
@@ -1240,9 +1385,10 @@ class SystematicReviewAutomation:
                            'processing_time': round(r.processing_time, 2),
                            'api_tokens_used': r.api_tokens_used}
                     row.update(r.fields)
-                    w.writerow(row)
+                    w.writerow(csv_row(row))
         except Exception as e:
             self.logger.error(f"Extraction CSV: {e}")
+            raise
 
     def write_screening_excel(self):
         try:
@@ -1261,6 +1407,8 @@ class SystematicReviewAutomation:
             self._excel_header(ws, headers)
 
             for ri, r in enumerate(self.screening_results, 2):
+                if not self.include_excluded and r.decision == ScreeningDecision.LIKELY_EXCLUDE.value:
+                    continue
                 row = asdict(r)
                 for ci, h in enumerate(headers, 1):
                     cell = ws.cell(row=ri, column=ci, value=row.get(h, ""))
@@ -1274,9 +1422,13 @@ class SystematicReviewAutomation:
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
             self._excel_autofit(ws)
-            wb.save(self.screening_excel)
+            literal_workbook(wb)
+            with atomic_output(self.screening_excel) as temporary:
+                wb.save(temporary)
+            wb.close()
         except Exception as e:
             self.logger.error(f"Screening Excel: {e}")
+            raise
 
     def write_extraction_excel(self):
         try:
@@ -1301,40 +1453,61 @@ class SystematicReviewAutomation:
             ws.freeze_panes = "A2"
             ws.auto_filter.ref = ws.dimensions
             self._excel_autofit(ws)
-            wb.save(self.extraction_excel)
+            literal_workbook(wb)
+            with atomic_output(self.extraction_excel) as temporary:
+                wb.save(temporary)
+            wb.close()
         except Exception as e:
             self.logger.error(f"Extraction Excel: {e}")
+            raise
 
     def _write_intermediate(self):
         try:
             if self.screening_results:
-                self.write_screening_csv()
+                if self.output_format in {'csv', 'both'}:
+                    self.write_screening_csv()
+                else:
+                    self.write_screening_excel()
             if self.extraction_results:
-                self.write_extraction_csv()
+                if self.output_format in {'csv', 'both'}:
+                    self.write_extraction_csv()
+                else:
+                    self.write_extraction_excel()
         except Exception as e:
             self.logger.error(f"Intermediate save: {e}")
 
     def _write_final(self):
         try:
             if self.screening_results:
-                self.write_screening_csv()
-                self.write_screening_excel()
+                if self.output_format in {'csv', 'both'}:
+                    self.write_screening_csv()
+                if self.output_format in {'excel', 'both'}:
+                    self.write_screening_excel()
             if self.extraction_results:
-                self.write_extraction_csv()
-                self.write_extraction_excel()
+                if self.output_format in {'csv', 'both'}:
+                    self.write_extraction_csv()
+                if self.output_format in {'excel', 'both'}:
+                    self.write_extraction_excel()
             self.logger.info("Output files written.")
         except Exception as e:
             self.logger.error(f"Final write: {e}")
+            raise
 
     # ── Summary ──────────────────────────────────────────────────────────────
 
     def _generate_summary(self) -> Dict:
-        s = self.stats.copy()
+        with self._lock:
+            s = self.stats.copy()
+        # Scientific/run counters describe final paper outcomes, not stage calls.
+        for key in ('likely_include', 'likely_exclude', 'flag_for_review', 'flag_for_human_review', 'error'):
+            s[key] = sum(r.decision.lower().replace(' ', '_') == key for r in self.screening_results)
+        s['processed_files'] = len(self.screening_results)
+        s['failed_files'] = s['error']
         summary = {
-            "screening_csv":    str(self.screening_csv),
-            "extraction_csv":   str(self.extraction_csv),
-            "screening_excel":  str(self.screening_excel),
-            "extraction_excel": str(self.extraction_excel),
+            "screening_csv":    str(self.screening_csv) if self.output_format in {'csv', 'both'} else '',
+            "extraction_csv":   str(self.extraction_csv) if self.output_format in {'csv', 'both'} else '',
+            "screening_excel":  str(self.screening_excel) if self.output_format in {'excel', 'both'} else '',
+            "extraction_excel": str(self.extraction_excel) if self.output_format in {'excel', 'both'} else '',
             "summary_report":   str(self.summary_report),
             "audit_ledger":     str(self.audit_ledger),
             "screened_count":   len(self.screening_results),
@@ -1358,7 +1531,7 @@ class SystematicReviewAutomation:
             summary['statistics']['avg_time_per_file'] = round(t / n, 2)
 
         try:
-            with open(self.summary_report, 'w', encoding='utf-8') as f:
+            with atomic_open(self.summary_report, 'w', encoding='utf-8') as f:
                 p = summary['prisma']
                 f.write("SYSTEMATIC / SCOPING REVIEW — PROCESSING SUMMARY\n")
                 f.write("=" * 55 + "\n\n")
@@ -1377,14 +1550,16 @@ class SystematicReviewAutomation:
                 f.write(f"  Avg per file          : {summary['statistics'].get('avg_time_per_file', 0):.1f}s\n")
                 f.write(f"  API tokens used       : {s['total_api_tokens']:,}\n\n")
                 f.write("OUTPUT FILES\n")
-                f.write(f"  {self.screening_csv}\n")
-                f.write(f"  {self.screening_excel}\n")
+                output_keys = ['screening_csv', 'screening_excel']
                 if self.extraction_results:
-                    f.write(f"  {self.extraction_csv}\n")
-                    f.write(f"  {self.extraction_excel}\n")
+                    output_keys += ['extraction_csv', 'extraction_excel']
+                for key in output_keys:
+                    if summary[key]:
+                        f.write(f"  {summary[key]}\n")
                 f.write(f"  {self.audit_ledger}\n")
         except Exception as e:
             self.logger.error(f"Summary write: {e}")
+            raise
 
         return summary
 
@@ -1447,7 +1622,10 @@ def main():
         **kwargs,
     )
 
-    results = slr.process_pdfs()
+    try:
+        results = slr.process_pdfs()
+    finally:
+        slr.close()
     p = results['prisma']
     print(f"\nDone — Screened: {p['screened']}  Included: {p['included']}  "
           f"Excluded: {p['excluded']}  Tokens: {results['statistics']['total_api_tokens']:,}")

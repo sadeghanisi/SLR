@@ -218,6 +218,8 @@ def ensure_processing_reports(
             ("write_screening_csv", "screening_csv"),
             ("write_screening_excel", "screening_excel"),
         ):
+            if getattr(auto, 'output_format', 'both') == ('excel' if path_name.endswith('_csv') else 'csv'):
+                continue
             path_value = getattr(auto, path_name, "")
             if path_value and not Path(path_value).exists() and hasattr(auto, writer_name):
                 try:
@@ -232,6 +234,8 @@ def ensure_processing_reports(
             ("write_extraction_csv", "extraction_csv"),
             ("write_extraction_excel", "extraction_excel"),
         ):
+            if getattr(auto, 'output_format', 'both') == ('excel' if path_name.endswith('_csv') else 'csv'):
+                continue
             path_value = getattr(auto, path_name, "")
             if path_value and not Path(path_value).exists() and hasattr(auto, writer_name):
                 try:
@@ -336,8 +340,14 @@ def processing_export_path(auto, which: str, workspace_handle=None) -> Path | No
 def workspace_pdf_row_for_result(handle, result: dict) -> dict | None:
     filename = result.get("server_filename") or result.get("filename") or ""
     display_filename = result.get("display_filename") or ""
+    rows = workspace_store.list_pdf_metadata(handle.root)
+    for row in rows:
+        if filename in {workspace_service.workspace_pdf_api_name(row['relative_path']), row['relative_path']}:
+            return row
+    # Display names and basenames are fallback hints, not identities.
     candidates = {filename, Path(filename).name, display_filename}
-    for row in workspace_store.list_pdf_metadata(handle.root):
+    matches = []
+    for row in rows:
         api_name = workspace_service.workspace_pdf_api_name(row["relative_path"])
         row_candidates = {
             api_name,
@@ -347,8 +357,8 @@ def workspace_pdf_row_for_result(handle, result: dict) -> dict | None:
             row["original_filename"],
         }
         if candidates & {item for item in row_candidates if item}:
-            return row
-    return None
+            matches.append(row)
+    return matches[0] if len(matches) == 1 else None
 
 
 def processing_audit_metadata(auto) -> dict[tuple[str, str], dict]:
@@ -538,6 +548,7 @@ def run_processing_background(
                         f"{workspace_service.workspace_safe_error(str(exc), workspace_handle)}"
                     ]
                 })
+                raise RuntimeError('Workspace suggestions not persisted; run results retained') from exc
         reports, report_errors = ensure_processing_reports(
             auto,
             workspace_handle,
@@ -550,7 +561,7 @@ def run_processing_background(
             workspace_store.finish_automation_run(
                 workspace_handle.root,
                 automation_run_id or "",
-                status="completed",
+                status="cancelled" if state.stop_event.is_set() else "completed",
                 output_count=len(getattr(auto, "screening_results", [])),
                 metadata={
                     "reports": reports,
@@ -575,6 +586,14 @@ def run_processing_background(
                 metadata={"error": safe_error},
             )
         push_event("processing_error", {"error": safe_error})
+    finally:
+        closer = getattr(auto, 'close', None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                state.error = 'Processing resource cleanup failed'
+                push_event('processing_error', {'error': state.error})
 
 
 def run_reserved_processing_background(*, reservation: object, **kwargs) -> None:
@@ -599,8 +618,11 @@ def start_processing(
         return ProcessingStartResult({"error": job_guard.CONFLICT_ERROR}, 409)
 
     worker_started = False
+    auto = None
     state = runtime_state.processing(session)
     try:
+        if callable(workspace_handle):
+            workspace_handle = workspace_handle()
         processing_input, error = resolve_processing_input(
             payload,
             session=session,
@@ -668,7 +690,12 @@ def start_processing(
         return ProcessingStartResult({"status": "started", "total": processing_input.pdf_count})
     finally:
         if not worker_started:
-            job_guard.release(reservation)
+            try:
+                closer = getattr(auto, 'close', None)
+                if callable(closer):
+                    closer()
+            finally:
+                job_guard.release(reservation)
 
 
 def stop_processing(session: dict) -> dict:

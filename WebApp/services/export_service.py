@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from version import VERSION, VERSION_TAG
+from atomic_files import atomic_write_text, atomic_open, atomic_output
+from spreadsheet_safety import csv_cell, literal_workbook
 
 
 EXPORT_FILENAMES = (
@@ -46,6 +48,13 @@ SCREENING_DECISION_FIELDS = (
     "dedup_method",
     "dedup_score",
     "stage",
+    "review_item_id",
+    "scope_key",
+    "scope_type",
+    "original_pdf_id",
+    "pdf_id",
+    "pdf_state",
+    "pdf_deleted_at",
     "current_status",
     "ai_suggestion",
     "ai_rationale",
@@ -80,6 +89,11 @@ DECISION_FIELDS = (
     "created_at",
     "record_id",
     "pdf_id",
+    "scope_key",
+    "scope_type",
+    "original_pdf_id",
+    "pdf_state",
+    "pdf_deleted_at",
     "stage",
     "current_status",
     "title",
@@ -106,6 +120,11 @@ FULL_TEXT_EXCLUSION_FIELDS = (
     "decision_timestamp",
     "record_id",
     "pdf_id",
+    "scope_key",
+    "scope_type",
+    "original_pdf_id",
+    "pdf_state",
+    "pdf_deleted_at",
     "stage",
     "current_status",
     "title",
@@ -145,12 +164,13 @@ def generate_workspace_exports(store, workspace_root: str | Path, options: dict 
     export_folder = export_run_folder(root)
     export_folder.mkdir(parents=True, exist_ok=False)
 
-    screening_rows = store.get_exportable_screening_rows(root)
-    ai_rows = store.get_decision_export_rows(root, actor_type=store.ACTOR_AI)
-    human_rows = store.get_decision_export_rows(root, actor_type=store.ACTOR_HUMAN)
-    full_text_exclusions = store.get_full_text_exclusion_rows(root)
-    counts = store.get_prisma_ready_counts(root)
-    metadata = store.get_export_metadata(root)
+    with store.workspace_read_snapshot(root):
+        screening_rows = store.get_exportable_screening_rows(root)
+        ai_rows = store.get_decision_export_rows(root, actor_type=store.ACTOR_AI)
+        human_rows = store.get_decision_export_rows(root, actor_type=store.ACTOR_HUMAN)
+        full_text_exclusions = store.get_full_text_exclusion_rows(root)
+        counts = store.get_prisma_ready_counts(root)
+        metadata = store.get_export_metadata(root)
 
     files = []
     files.append(_write_csv(export_folder, "workspace_screening_decisions.csv", screening_rows, SCREENING_DECISION_FIELDS))
@@ -181,6 +201,12 @@ def generate_workspace_exports(store, workspace_root: str | Path, options: dict 
     }
     manifest_file = _write_json(export_folder, "export_manifest.json", manifest)
     manifest["files"].append(manifest_file)
+    # The manifest includes itself. Its byte count must describe the final JSON.
+    for _ in range(8):
+        size = len(json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True).encode('utf-8'))
+        if manifest_file['bytes'] == size:
+            break
+        manifest_file['bytes'] = size
     _write_json(export_folder, "export_manifest.json", manifest)
 
     store.write_audit_event(
@@ -268,7 +294,7 @@ def _resolve_export_folder(store, workspace_root: str | Path, export_id: str) ->
 
 def _write_csv(folder: Path, filename: str, rows: list[dict], fieldnames: tuple[str, ...]) -> dict:
     path = folder / filename
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    with atomic_open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
@@ -288,13 +314,16 @@ def _write_xlsx(folder: Path, filename: str, sheet_name: str, rows: list[dict], 
         worksheet.append([_cell_value(row.get(key)) for key in fieldnames])
     for cell in worksheet[1]:
         cell.style = "Headline 4"
-    workbook.save(path)
+    literal_workbook(workbook)
+    with atomic_output(path) as temporary:
+        workbook.save(temporary)
+    workbook.close()
     return _file_entry(folder, path, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def _write_json(folder: Path, filename: str, payload: dict) -> dict:
     path = folder / filename
-    path.write_text(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True))
     return _file_entry(folder, path, "application/json")
 
 
@@ -313,7 +342,7 @@ def _write_counts_csv(folder: Path, filename: str, counts: dict) -> dict:
 
 def _write_text(folder: Path, filename: str, text: str) -> dict:
     path = folder / filename
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text)
     return _file_entry(folder, path, "text/markdown")
 
 
@@ -394,6 +423,8 @@ def _methods_disclosure_text(metadata: dict, counts: dict) -> str:
         f"- AI-only unfinalized suggestions: {metric_value('ai_only_unfinalized_suggestions')}",
         "",
         "Human decisions take precedence over AI suggestions in exported decision fields.",
+        "PDF-scoped review history retains its original scope identity after PDF deletion. Exported pdf_state identifies deleted files; these files are not currently available. Review counts continue to use active records and the latest human decision per logical review scope.",
+        f"- Deleted PDF scopes retained: {summary.get('counts', {}).get('deleted_pdf_scopes', 0)}",
         "",
         "## Full-Text Exclusion Reasons",
         "",
@@ -454,7 +485,7 @@ def _cell_value(value: Any) -> Any:
         return ""
     if isinstance(value, (dict, list, tuple)):
         return json.dumps(value, ensure_ascii=True, sort_keys=True)
-    return value
+    return csv_cell(value)
 
 
 def _timestamp_compact() -> str:

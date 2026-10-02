@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from version import VERSION as __version__
+from url_privacy import redact_url
+from atomic_files import atomic_open
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +86,16 @@ class ProviderRateLimiter:
                 self.max_concurrency = max(1, int(max_concurrency))
             self._condition.notify_all()
 
-    def _enter(self) -> float:
+    def _enter(self, stop_event=None) -> float:
         total_wait = 0.0
         while True:
             with self._condition:
+                if stop_event is not None and stop_event.is_set():
+                    raise InterruptedError('Stopped by user')
                 while self._active >= self.max_concurrency:
-                    self._condition.wait()
+                    self._condition.wait(timeout=0.1 if stop_event is not None else None)
+                    if stop_event is not None and stop_event.is_set():
+                        raise InterruptedError('Stopped by user')
 
                 now = self._clock()
                 wait_seconds = max(0.0, (self._last_start + self.min_interval) - now)
@@ -98,7 +104,11 @@ class ProviderRateLimiter:
                     self._last_start = now
                     return total_wait
 
-            self._sleeper(wait_seconds)
+            if stop_event is not None:
+                if stop_event.wait(wait_seconds):
+                    raise InterruptedError('Stopped by user')
+            else:
+                self._sleeper(wait_seconds)
             total_wait += wait_seconds
 
     def _exit(self) -> None:
@@ -106,9 +116,11 @@ class ProviderRateLimiter:
             self._active = max(0, self._active - 1)
             self._condition.notify_all()
 
-    def run(self, operation):
-        wait_seconds = self._enter()
+    def run(self, operation, stop_event=None):
+        wait_seconds = self._enter(stop_event)
         try:
+            if stop_event is not None and stop_event.is_set():
+                raise InterruptedError('Stopped by user')
             return operation(), wait_seconds
         except Exception as exc:
             try:
@@ -471,6 +483,10 @@ def _status_code_from_error(error: Exception) -> Optional[int]:
 
 
 def categorize_llm_error(error: Exception) -> str:
+    if isinstance(error, LLMCallError):
+        return error.category
+    if isinstance(error, InterruptedError):
+        return "cancelled"
     if isinstance(error, NotImplementedError):
         return "unsupported_feature"
 
@@ -549,7 +565,7 @@ def load_custom_models() -> Dict[str, List[str]]:
 
 def save_custom_models(custom: Dict[str, List[str]]) -> None:
     """Persist user-added model IDs. This file does not contain API keys."""
-    with open(_CUSTOM_MODELS_FILE, "w", encoding="utf-8") as f:
+    with atomic_open(_CUSTOM_MODELS_FILE, "w", encoding="utf-8") as f:
         json.dump(custom, f, indent=2)
 
 
@@ -583,6 +599,15 @@ class LLMProvider(ABC):
         self.model = model
         self.config = kwargs
 
+    def close(self):
+        if getattr(self, '_closed', False):
+            return
+        for client in (getattr(self, 'client', None), getattr(self, '_client', None)):
+            closer = getattr(client, 'close', None)
+            if callable(closer):
+                closer()
+        self._closed = True
+
     @abstractmethod
     def chat_completion_with_tokens(
         self,
@@ -613,7 +638,7 @@ class OpenAIProvider(LLMProvider):
         super().__init__(api_key, model, **kwargs)
         try:
             import openai
-            self.client = openai.OpenAI(api_key=api_key)
+            self.client = openai.OpenAI(api_key=api_key, timeout=kwargs.get('timeout', 90), max_retries=0)
         except ImportError:
             raise ImportError("Run: pip install openai")
 
@@ -629,7 +654,7 @@ class OpenAIProvider(LLMProvider):
             tokens = resp.usage.total_tokens if resp.usage else 0
             return resp.choices[0].message.content, tokens
         except Exception as e:
-            logger.error(f"OpenAI error: {e}")
+            logger.error("OpenAI error (%s)", categorize_llm_error(e))
             raise
 
     def get_available_models(self) -> List[str]:
@@ -641,7 +666,7 @@ class AnthropicProvider(LLMProvider):
         super().__init__(api_key, model, **kwargs)
         try:
             import anthropic
-            self.client = anthropic.Anthropic(api_key=api_key)
+            self.client = anthropic.Anthropic(api_key=api_key, timeout=kwargs.get('timeout', 90), max_retries=0)
         except ImportError:
             raise ImportError("Run: pip install anthropic")
 
@@ -665,7 +690,7 @@ class AnthropicProvider(LLMProvider):
             tokens = (resp.usage.input_tokens + resp.usage.output_tokens) if resp.usage else 0
             return resp.content[0].text, tokens
         except Exception as e:
-            logger.error(f"Anthropic error: {e}")
+            logger.error("Anthropic error (%s)", categorize_llm_error(e))
             raise
 
     def get_available_models(self) -> List[str]:
@@ -696,7 +721,10 @@ class GeminiProvider(LLMProvider):
 
             self.genai = genai
             self.genai_types = genai_types
-            self._client = genai.Client(api_key=api_key)
+            self._client = genai.Client(api_key=api_key, http_options={
+                'timeout': int(kwargs.get('timeout', 90) * 1000),
+                'retry_options': {'attempts': 1},
+            })
             self._sdk = "google-genai"
         except ImportError:
             try:
@@ -818,7 +846,7 @@ class GeminiProvider(LLMProvider):
                 resp = self._client.generate_content(prompt, generation_config=cfg)
             return self._response_text(resp), self._usage_tokens(resp)
         except Exception as e:
-            logger.error(f"Gemini error: {e}")
+            logger.error("Gemini error (%s)", categorize_llm_error(e))
             raise
 
     def get_available_models(self) -> List[str]:
@@ -860,7 +888,7 @@ class OllamaProvider(LLMProvider):
             tokens = body.get("eval_count", 0) + body.get("prompt_eval_count", 0)
             return text, tokens
         except Exception as e:
-            logger.error(f"Ollama error: {e}")
+            logger.error("Ollama error (%s)", categorize_llm_error(e))
             raise
 
     def get_available_models(self) -> List[str]:
@@ -923,7 +951,7 @@ class OpenAICompatibleProvider(LLMProvider):
             tokens = body.get("usage", {}).get("total_tokens", 0)
             return body["choices"][0]["message"]["content"], tokens
         except Exception as e:
-            logger.error(f"{self.display_name} error: {e}")
+            logger.error("%s error (%s)", self.display_name, categorize_llm_error(e))
             raise
 
     def get_available_models(self) -> List[str]:
@@ -1028,10 +1056,21 @@ class LLMManager:
         self.last_call_metadata: Dict[str, Any] = {}
         self._thread_local = threading.local()
 
+    def close(self):
+        closer = getattr(self.provider, 'close', None)
+        if callable(closer):
+            closer()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def _build_rate_limit_key(self) -> str:
         profile_id = self.profile.get("id") or self.provider_name.lower().replace(" ", "_")
         base_url = getattr(self.provider, "base_url", None) or self.profile.get("base_url") or ""
-        return f"{profile_id}|{base_url}".lower()
+        return f"{profile_id}|{redact_url(base_url)}".lower()
 
     @staticmethod
     def _pop_retry_options(kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -1039,6 +1078,7 @@ class LLMManager:
             "max_attempts": max(1, int(kwargs.pop("retry_max_attempts", 3) or 1)),
             "retry_delay": max(0.0, float(kwargs.pop("retry_delay", 0.5) or 0.0)),
             "retry_jitter": max(0.0, float(kwargs.pop("retry_jitter", 0.1) or 0.0)),
+            "stop_event": kwargs.pop("retry_stop_event", None),
         }
 
     @staticmethod
@@ -1060,6 +1100,7 @@ class LLMManager:
         max_attempts: int,
         retry_delay: float,
         retry_jitter: float,
+        stop_event=None,
     ):
         total_rate_limit_wait = 0.0
         total_backoff_wait = 0.0
@@ -1067,8 +1108,10 @@ class LLMManager:
         last_category = None
 
         for attempt_index in range(max_attempts):
+            if stop_event is not None and stop_event.is_set():
+                raise InterruptedError('Stopped by user')
             try:
-                result, wait_seconds = self.rate_limiter.run(operation)
+                result, wait_seconds = self.rate_limiter.run(operation, stop_event=stop_event)
                 total_rate_limit_wait += wait_seconds
                 metadata = {
                     "provider": self.provider_name,
@@ -1084,6 +1127,8 @@ class LLMManager:
                 }
                 self._set_last_call_metadata(metadata)
                 return result
+            except InterruptedError:
+                raise
             except Exception as exc:
                 metadata = getattr(exc, "metadata", None)
                 if isinstance(metadata, dict):
@@ -1112,10 +1157,10 @@ class LLMManager:
                     if final_status == "failed_retry_exhausted":
                         message = (
                             f"LLM call failed after {attempt_index + 1} attempts "
-                            f"({category}): {exc}"
+                            f"({category})"
                         )
                     else:
-                        message = f"LLM call failed without retry ({category}): {exc}"
+                        message = f"LLM call failed without retry ({category})"
                     raise LLMCallError(
                         message,
                         category=category,
@@ -1128,7 +1173,11 @@ class LLMManager:
                 delay = self._backoff_delay(category, retry_delay, retry_jitter, retry_count)
                 total_backoff_wait += delay
                 if delay > 0:
-                    time.sleep(delay)
+                    if stop_event is not None:
+                        if stop_event.wait(delay):
+                            raise InterruptedError('Stopped by user')
+                    else:
+                        time.sleep(delay)
 
         raise RuntimeError("LLM retry loop exited unexpectedly")
 
@@ -1177,38 +1226,54 @@ class LLMManager:
         def operation():
             if adapter in ("native_openai", "openai_compatible", "native_ollama"):
                 import openai
+                base_url = getattr(self.provider, 'base_url', None)
+                if adapter == 'native_ollama':
+                    base_url = base_url.rstrip('/') + '/v1'
                 raw_client = openai.OpenAI(
                     api_key=self.provider.api_key or "ollama",
-                    base_url=getattr(self.provider, "base_url", None),
+                    base_url=base_url,
+                    timeout=getattr(self.provider, 'timeout', getattr(self.provider, 'config', {}).get('timeout', 90)),
+                    max_retries=0,
+                    default_headers=getattr(self.provider, 'extra_headers', None),
                 )
-                client = instructor.from_openai(raw_client)
-                resp = client.chat.completions.create(
-                    model=self.provider.model,
-                    messages=messages,
-                    response_model=response_model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    max_retries=1,
-                )
-                return resp, 0
+                try:
+                    client = instructor.from_openai(raw_client)
+                    creator = getattr(client.chat.completions, 'create_with_completion', None)
+                    if creator is None:
+                        creator = client.chat.completions.create
+                    result = creator(
+                        model=self.provider.model, messages=messages,
+                        response_model=response_model, temperature=temperature,
+                        max_tokens=max_tokens, max_retries=1,
+                    )
+                    if isinstance(result, tuple):
+                        resp, completion = result
+                        return resp, int(getattr(getattr(completion, 'usage', None), 'total_tokens', 0) or 0)
+                    return result, 0
+                finally:
+                    raw_client.close()
 
             if adapter == "native_anthropic":
                 import anthropic
-                raw_client = anthropic.Anthropic(api_key=self.provider.api_key)
-                client = instructor.from_anthropic(raw_client)
-                system_content = next(
-                    (m["content"] for m in messages if m["role"] == "system"), ""
-                )
-                user_msgs = [m for m in messages if m["role"] != "system"]
-                resp = client.messages.create(
-                    model=self.provider.model,
-                    max_tokens=max_tokens,
-                    system=system_content,
-                    messages=user_msgs,
-                    response_model=response_model,
-                    max_retries=1,
-                )
-                return resp, 0
+                raw_client = anthropic.Anthropic(api_key=self.provider.api_key, timeout=getattr(self.provider, 'config', {}).get('timeout', 90), max_retries=0)
+                try:
+                    client = instructor.from_anthropic(raw_client)
+                    system_content = next((m['content'] for m in messages if m['role'] == 'system'), '')
+                    creator = getattr(client.messages, 'create_with_completion', None)
+                    if creator is None:
+                        creator = client.messages.create
+                    result = creator(
+                        model=self.provider.model, max_tokens=max_tokens,
+                        system=system_content, messages=[m for m in messages if m['role'] != 'system'],
+                        response_model=response_model, max_retries=1,
+                    )
+                    if isinstance(result, tuple):
+                        resp, completion = result
+                        usage = getattr(completion, 'usage', None)
+                        return resp, int(getattr(usage, 'input_tokens', 0) or 0) + int(getattr(usage, 'output_tokens', 0) or 0)
+                    return result, 0
+                finally:
+                    raw_client.close()
 
             raise NotImplementedError(
                 f"Structured output not natively supported for {pname}. "
@@ -1355,6 +1420,7 @@ class LLMManager:
 
 def test_provider_connection(provider_name: str, api_key: str, model: str, **kwargs) -> Tuple[bool, str]:
     """Returns (success, message)."""
+    mgr = None
     try:
         mgr = LLMManager(provider_name, api_key, model, **kwargs)
         msgs = [
@@ -1366,6 +1432,10 @@ def test_provider_connection(provider_name: str, api_key: str, model: str, **kwa
         return ok, f"Tokens used: {tokens}" if ok else "Empty response"
     except Exception as e:
         return False, str(e)
+    finally:
+        closer = getattr(mgr, 'close', None)
+        if callable(closer):
+            closer()
 
 
 def get_install_instructions() -> Dict[str, str]:

@@ -14,6 +14,10 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict
+from functools import wraps
+from urllib.parse import urlsplit
+from atomic_files import atomic_write_text
+from url_privacy import redact_url
 
 from flask import (
     Flask, render_template, request, jsonify, send_file, Response, stream_with_context
@@ -71,6 +75,8 @@ SETTINGS_SECRET_KEY_PARTS = (
     "token",
     "password",
     "credential",
+    "authorization",
+    "cookie",
 )
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,6 +98,34 @@ session = {
     "reference_uploads": {},
 }
 runtime_state.initialize(session)
+
+
+@app.before_request
+def validate_local_request():
+    host = urlsplit(request.host_url).hostname
+    if host not in {'localhost', '127.0.0.1', '::1'}:
+        return jsonify({'error': 'Localhost host required'}), 403
+    origin = request.headers.get('Origin')
+    if origin:
+        origin_url = urlsplit(origin)
+        current_url = urlsplit(request.host_url)
+        if (origin_url.scheme, origin_url.netloc) != (current_url.scheme, current_url.netloc):
+            return jsonify({'error': 'Cross-origin requests are not allowed'}), 403
+    elif request.headers.get('Sec-Fetch-Site') == 'cross-site':
+        return jsonify({'error': 'Cross-origin requests are not allowed'}), 403
+
+
+def _input_mutation(function):
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        reservation = job_guard.try_reserve('input_mutation')
+        if reservation is None:
+            return jsonify({'error': job_guard.CONFLICT_ERROR}), 409
+        try:
+            return function(*args, **kwargs)
+        finally:
+            job_guard.release(reservation)
+    return guarded
 
 
 def _push_runtime(state, event_type: str, data: dict):
@@ -146,16 +180,21 @@ def _save_uploaded_file(file_storage, folder: Path, allowed_exts: set[str], max_
 def _load_webapp_settings() -> dict:
     if not SETTINGS_FILE.exists():
         return {}
-    data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
     safe = _sanitize_settings(data)
     if safe != data:
-        SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
+        atomic_write_text(SETTINGS_FILE, json.dumps(safe, indent=2))
     return safe
 
 
 def _write_webapp_settings(data: dict) -> None:
     safe = _sanitize_settings(data)
-    SETTINGS_FILE.write_text(json.dumps(safe, indent=2), encoding="utf-8")
+    atomic_write_text(SETTINGS_FILE, json.dumps(safe, indent=2))
 
 
 def _sanitize_settings(value):
@@ -163,7 +202,8 @@ def _sanitize_settings(value):
         clean = {}
         for key, nested in value.items():
             key_text = str(key)
-            if any(part in key_text.lower() for part in SETTINGS_SECRET_KEY_PARTS):
+            if (key_text.lower() not in ('max_tokens', 'max_output_tokens')
+                    and any(part in key_text.lower() for part in SETTINGS_SECRET_KEY_PARTS)):
                 continue
             clean[key_text] = _sanitize_settings(nested)
         return clean
@@ -171,7 +211,7 @@ def _sanitize_settings(value):
         return [_sanitize_settings(item) for item in value]
     if isinstance(value, tuple):
         return [_sanitize_settings(item) for item in value]
-    return value
+    return redact_url(value)
 
 
 def _current_workspace():
@@ -416,6 +456,7 @@ def api_enhance():
 
     system_prompt = _ENHANCE_SYSTEM_PROMPTS[ftype]
 
+    llm = None
     try:
         kwargs = {}
         if base_url:
@@ -431,6 +472,9 @@ def api_enhance():
         return jsonify({"enhanced": enhanced.strip()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if llm is not None:
+            llm.close()
 
 
 @app.route("/api/provider/test", methods=["POST"])
@@ -672,6 +716,7 @@ def api_workspace_exports_download(export_id, filename):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/references/upload", methods=["POST"])
+@_input_mutation
 def upload_references():
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -699,6 +744,7 @@ def upload_references():
 
 
 @app.route("/api/references/parse", methods=["POST"])
+@_input_mutation
 def api_parse_references():
     d = request.json or {}
     path = d.get("path", "")
@@ -712,7 +758,6 @@ def api_parse_references():
         return jsonify({"error": "Unsupported reference file format"}), 400
     try:
         records = parse_references(str(ref_path))
-        session["references"] = records
         payload = {
             "count": len(records),
             "sample": records[:5],
@@ -731,12 +776,17 @@ def api_parse_references():
                 "summary": handle.public_summary(),
             }
             session["references"] = workspace_store.load_records(handle.root)
+        else:
+            session['references'] = records
+        session['dedup_stats'] = None
+        runtime_state.screening(session).clear()
         return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/references/deduplicate", methods=["POST"])
+@_input_mutation
 def api_deduplicate():
     if not session["references"]:
         return jsonify({"error": "No references loaded"}), 400
@@ -819,6 +869,7 @@ def api_start_screening():
         return jsonify({"error": job_guard.CONFLICT_ERROR}), 409
 
     worker_started = False
+    llm = None
     screening = runtime_state.screening(session)
     try:
         if not session["references"]:
@@ -837,6 +888,7 @@ def api_start_screening():
             stop_event=screening.stop_event,
         )
         workspace_handle = _current_workspace()
+        persistence_errors = []
 
         def _run():
             try:
@@ -852,6 +904,7 @@ def api_start_screening():
                                 model=model,
                             )
                         except Exception as exc:
+                            persistence_errors.append(exc)
                             _push_screening("screening_warning", {"warning": f"Workspace suggestion not persisted: {exc}"})
                     _push_screening("screening_progress", {
                         "index": idx,
@@ -861,12 +914,22 @@ def api_start_screening():
                     })
 
                 screener.screen_all(session["references"], criteria, callback=_cb)
+                if persistence_errors:
+                    raise RuntimeError('Workspace suggestions not persisted')
                 _push_screening("screening_done", {"total": len(screening.results)})
             except Exception:
                 screening.error = "Screening failed"
-                raise
+                _push_screening('screening_error', {'error': screening.error})
             finally:
-                job_guard.release(reservation)
+                try:
+                    closer = getattr(llm, 'close', None)
+                    if callable(closer):
+                        closer()
+                except Exception:
+                    screening.error = 'Screening resource cleanup failed'
+                    _push_screening('screening_error', {'error': screening.error})
+                finally:
+                    job_guard.release(reservation)
 
         t = threading.Thread(target=_run, daemon=True)
         previous_thread = screening.thread
@@ -883,7 +946,12 @@ def api_start_screening():
         return jsonify({"status": "started", "total": len(session["references"])})
     finally:
         if not worker_started:
-            job_guard.release(reservation)
+            try:
+                closer = getattr(llm, 'close', None)
+                if callable(closer):
+                    closer()
+            finally:
+                job_guard.release(reservation)
 
 
 @app.route("/api/screening/stop", methods=["POST"])
@@ -894,11 +962,15 @@ def api_stop_screening():
 
 @app.route("/api/screening/results", methods=["GET"])
 def api_screening_results():
-    results = runtime_state.screening(session).results
-    return jsonify({
+    state = runtime_state.screening(session)
+    results = state.results
+    payload = {
         "results": results,
         "total": len(results),
-    })
+    }
+    if _truthy(request.args.get('status')):
+        payload.update(active=bool(state.thread and state.thread.is_alive()), error=state.error)
+    return jsonify(payload)
 
 
 @app.route("/api/screening/export", methods=["POST"])
@@ -939,6 +1011,7 @@ def api_export_screening():
 # ═══════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/pdfs/upload", methods=["POST"])
+@_input_mutation
 def upload_pdfs():
     files = request.files.getlist("files")
     if not files:
@@ -953,25 +1026,38 @@ def upload_pdfs():
 
     handle = _current_workspace()
     if handle:
+        workspace_store.validate_workspace_root(handle.root)
         pdf_dir = handle.root / "pdfs"
+        staged = []
         saved = []
         display_names = session.setdefault("pdf_display_names", {})
-        for f in files:
-            try:
+        try:
+            for f in files:
                 item = _save_uploaded_file(f, pdf_dir, ALLOWED_PDF_EXTENSIONS, MAX_PDF_UPLOAD_SIZE)
-                relative_path = Path(item["path"]).resolve().relative_to(handle.root.resolve()).as_posix()
-                pdf_meta = workspace_store.register_pdf(
-                    handle.root,
-                    relative_path,
-                    original_filename=item["original_filename"],
-                    display_name=item["original_filename"],
-                )
-            except (ValueError, WorkspaceError, FileNotFoundError) as e:
-                return jsonify({"error": str(e)}), 400
+                staged.append(item)
+            with workspace_store.workspace_connection(handle.root) as conn:
+                for item in staged:
+                    relative_path = Path(item["path"]).resolve().relative_to(handle.root.resolve()).as_posix()
+                    pdf_meta = workspace_store.register_pdf(
+                        handle.root,
+                        relative_path,
+                        original_filename=item["original_filename"],
+                        display_name=item["original_filename"],
+                        _connection=conn,
+                    )
+                    saved.append(pdf_meta)
+        except Exception as e:
+            for item in staged:
+                Path(item["path"]).unlink(missing_ok=True)
+            status = 400 if isinstance(e, (ValueError, WorkspaceError, FileNotFoundError)) else 500
+            return jsonify({"error": str(e)}), status
+
+        public = []
+        for pdf_meta in saved:
             api_name = _workspace_pdf_api_name(pdf_meta["relative_path"])
             display_names[api_name] = pdf_meta["display_name"]
             display_names[Path(api_name).name] = pdf_meta["display_name"]
-            saved.append({
+            public.append({
                 "path": api_name,
                 "filename": api_name,
                 "relative_path": pdf_meta["relative_path"],
@@ -984,8 +1070,8 @@ def upload_pdfs():
 
         session["pdf_folder"] = WORKSPACE_PDF_TOKEN
         return jsonify({
-            "count": len(saved),
-            "files": saved,
+            "count": len(public),
+            "files": public,
             "folder": WORKSPACE_PDF_TOKEN,
             "workspace": True,
         })
@@ -1002,12 +1088,17 @@ def upload_pdfs():
 
     saved = []
     display_names = session.setdefault("pdf_display_names", {})
-    for f in files:
-        try:
+    try:
+        for f in files:
             item = _save_uploaded_file(f, pdf_dir, ALLOWED_PDF_EXTENSIONS, MAX_PDF_UPLOAD_SIZE)
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        saved.append(item)
+            saved.append(item)
+    except Exception as e:
+        for item in saved:
+            Path(item["path"]).unlink(missing_ok=True)
+        if not existing:
+            pdf_dir.rmdir()
+        return jsonify({"error": str(e)}), 400 if isinstance(e, ValueError) else 500
+    for item in saved:
         display_names[item["filename"]] = item["original_filename"]
 
     session["pdf_folder"] = str(pdf_dir)
@@ -1069,6 +1160,7 @@ def list_pdfs():
 
 
 @app.route("/api/pdfs/delete", methods=["POST"])
+@_input_mutation
 def delete_pdf():
     d = request.json or {}
     filename = d.get("filename", "")
@@ -1113,6 +1205,7 @@ def delete_pdf():
 
 
 @app.route("/api/pdfs/clear", methods=["POST"])
+@_input_mutation
 def clear_pdfs():
     handle = _current_workspace()
     if handle:
@@ -1170,7 +1263,7 @@ def api_start_processing():
     result = processing_service.start_processing(
         d,
         session=session,
-        workspace_handle=_current_workspace(),
+        workspace_handle=_current_workspace,
         pdf_upload_root=PDF_UPLOAD_ROOT,
         output_dir=OUTPUT_DIR,
         automation_cls=SystematicReviewAutomation,
@@ -1222,9 +1315,13 @@ def api_export_processing():
 def sse_events():
     def generate():
         last_idx = 0
+        last_progress = None
         while True:
             state = runtime_state.event_stream(session, job_guard.active_job())
             with state.progress_lock:
+                if state.progress is not last_progress:
+                    last_idx = 0
+                    last_progress = state.progress
                 events = state.progress[last_idx:]
                 last_idx = len(state.progress)
 

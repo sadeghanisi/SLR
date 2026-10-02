@@ -8,6 +8,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
 import queue
 import os
+import subprocess
 import re
 import sys
 import json
@@ -16,6 +17,9 @@ from datetime import datetime, timedelta
 import webbrowser
 import time
 import traceback
+from copy import deepcopy
+from url_privacy import redact_url, redact_settings
+from atomic_files import atomic_open
 from version import VERSION as __version__
 
 try:
@@ -88,6 +92,7 @@ class Tooltip:
         widget.bind("<Enter>",  self._schedule)
         widget.bind("<Leave>",  self._cancel)
         widget.bind("<Button>", self._cancel)
+        widget.bind("<Destroy>", self._cancel, add='+')
 
     def _schedule(self, _=None):
         self._cancel()
@@ -95,13 +100,22 @@ class Tooltip:
 
     def _cancel(self, _=None):
         if self._job:
-            self.widget.after_cancel(self._job)
+            try:
+                self.widget.after_cancel(self._job)
+            except tk.TclError:
+                pass
             self._job = None
         if self._tip:
-            self._tip.destroy()
+            try:
+                self._tip.destroy()
+            except tk.TclError:
+                pass
             self._tip = None
 
     def _show(self):
+        self._job = None
+        if not self.widget.winfo_exists():
+            return
         x = self.widget.winfo_rootx() + 20
         y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
         self._tip = tw = tk.Toplevel(self.widget)
@@ -120,6 +134,9 @@ class SLRAutomationGUI:
 
     def __init__(self, root: tk.Tk):
         self.root = root
+        self._closing = False
+        self._clock_job = self._queue_job = None
+        self.root.protocol('WM_DELETE_WINDOW', self._on_close)
         self.root.title(f"SLR Assistant v{__version__}")
         self.root.geometry("1150x800")
         self.root.minsize(950, 680)
@@ -138,7 +155,7 @@ class SLRAutomationGUI:
             from ttkthemes import ThemedStyle
             style = ThemedStyle(self.root)
             style.set_theme("arc")
-        except ImportError:
+        except (ImportError, tk.TclError):
             style.theme_use("clam")
 
         bg  = "#F7F9FC"
@@ -294,8 +311,39 @@ class SLRAutomationGUI:
         self._tick_clock()
 
     def _tick_clock(self):
+        if self._closing:
+            return
         self._status_time_var.set(datetime.now().strftime("%H:%M:%S"))
-        self.root.after(1000, self._tick_clock)
+        self._clock_job = self.root.after(1000, self._tick_clock)
+
+    def _on_close(self):
+        if self._closing:
+            return
+        self._closing = True
+        self.stop_event.set()
+        if self._screener is not None:
+            self._screener.stop()
+        for job in (self._clock_job, self._queue_job):
+            if job is not None:
+                try:
+                    self.root.after_cancel(job)
+                except tk.TclError:
+                    pass
+        self.root.withdraw()
+        self._finish_close()
+
+    def _finish_close(self):
+        workers = [getattr(self, name, None) for name in ('_processing_thread', '_ingest_thread', '_connection_thread')]
+        if any(worker is not None and worker.is_alive() for worker in workers):
+            self.root.after(100, self._finish_close)
+            return
+        # Variable callbacks live in Tcl independently of widget bindings and can
+        # retain the entire GUI even after root.destroy().
+        for variable in vars(self).values():
+            if isinstance(variable, tk.Variable):
+                for modes, callback in variable.trace_info():
+                    variable.trace_remove(modes, callback)
+        self.root.destroy()
 
     # ── INGESTION TAB ─────────────────────────────────────────────────────────
 
@@ -626,7 +674,8 @@ class SLRAutomationGUI:
             return
         provider = self.llm_provider.get()
         api_key  = self.api_key.get().strip()
-        if not api_key and provider != "Ollama (Local)":
+        from llm_interface import LLMManager
+        if not api_key and LLMManager.get_provider_info().get(provider, {}).get('requires_api_key') is True:
             messagebox.showwarning("API Key",
                                    "Enter your API key in the Setup tab before screening.")
             return
@@ -677,15 +726,24 @@ class SLRAutomationGUI:
         records_snapshot = list(self._ingest_dedup)
 
         def _run():
-            results = screener.screen_all(
-                records_snapshot, criteria,
-                callback=lambda res, cur, tot: self.message_queue.put(
-                    ("ingest_progress", res, cur, tot)
-                )
-            )
-            self.message_queue.put(("ingest_done", results))
+            partial = []
+            error = ''
+            def progress(res, cur, total):
+                partial.append(res)
+                self.message_queue.put(('ingest_progress', res, cur, total))
+            try:
+                partial = screener.screen_all(records_snapshot, criteria, callback=progress)
+            except Exception:
+                error = 'Abstract screening failed; partial results retained.'
+                self.message_queue.put(('error', error))
+            finally:
+                try:
+                    mgr.close()
+                finally:
+                    self.message_queue.put(('ingest_done', partial, error))
 
-        threading.Thread(target=_run, daemon=True).start()
+        self._ingest_thread = threading.Thread(target=_run, daemon=True)
+        self._ingest_thread.start()
 
     def _ingest_stop(self):
         if self._screener:
@@ -1285,7 +1343,8 @@ class SLRAutomationGUI:
             self._conn_status = "ok" if ok else "fail"
             self.message_queue.put(("conn_test", ok, msg))
 
-        threading.Thread(target=run, daemon=True).start()
+        self._connection_thread = threading.Thread(target=run, daemon=True)
+        self._connection_thread.start()
 
     def _manage_custom_models(self):
         """Open a dialog to add/remove custom model names for the current provider."""
@@ -1330,13 +1389,16 @@ class SLRAutomationGUI:
         # Populate: built-in models (non-removable) + custom models (removable)
         builtin_models = []
         if provider in LLMManager.PROVIDERS:
+            model_provider = None
             try:
                 default_model = LLMManager.get_default_models().get(provider, "")
-                builtin_models = LLMManager.PROVIDERS[provider](
-                    "", default_model
-                ).get_available_models()
+                model_provider = LLMManager.PROVIDERS[provider]("", default_model)
+                builtin_models = model_provider.get_available_models()
             except Exception:
                 builtin_models = []
+            finally:
+                if model_provider is not None:
+                    model_provider.close()
         custom = load_custom_models().get(provider, [])
 
         all_models_data = []  # list of (name, is_custom)
@@ -1452,6 +1514,8 @@ class SLRAutomationGUI:
             result = show_advanced_config(self.root, self.advanced_config)
             if result:
                 self.advanced_config.update(result)
+                self.max_workers.set(result.get('max_workers', self.max_workers.get()))
+                self.cache_enabled.set(result.get('use_cache', self.cache_enabled.get()))
                 self._on_pdf_folder_changed()
                 self._log("Advanced configuration updated", "OK")
         except Exception as e:
@@ -1463,16 +1527,19 @@ class SLRAutomationGUI:
             if sys.platform == 'win32':
                 os.startfile(p)
             elif sys.platform == 'darwin':
-                os.system(f'open "{p}"')
+                subprocess.Popen(['open', p])
             else:
-                os.system(f'xdg-open "{p}"')
+                subprocess.Popen(['xdg-open', p])
         else:
             messagebox.showwarning("Warning", "Output folder does not exist yet.")
 
     # ── Processing ───────────────────────────────────────────────────────────
 
     def _validate(self) -> bool:
-        if not self.api_key.get().strip() and self.llm_provider.get() != "Ollama (Local)":
+        from llm_interface import LLMManager
+        info = LLMManager.get_provider_info().get(self.llm_provider.get(), {})
+        if (not self.advanced_config.get('dry_run') and info.get('requires_api_key') is True
+                and not self.api_key.get().strip()):
             messagebox.showerror("Missing API Key", "Please enter your API key.")
             return False
         if not self.pdf_folder.get().strip():
@@ -1499,6 +1566,30 @@ class SLRAutomationGUI:
 
         self.is_processing = True
         self.stop_event    = threading.Event()
+        self.advanced_config['max_workers'] = self.max_workers.get()
+        self.advanced_config['use_cache'] = self.cache_enabled.get()
+        # Snapshot Tk variables on the UI thread before launching workers.
+        self._processing_config = {
+            'api_key': self.api_key.get().strip(),
+            'pdf_folder': self.pdf_folder.get(),
+            'output_folder': self.output_folder.get(),
+            'cache_enabled': self.cache_enabled.get(),
+            'parallel_processing': self.parallel_proc.get(),
+            'max_workers': self.max_workers.get(),
+            'rate_limit_delay': self.rate_limit_delay.get(),
+            'screening_prompt': self.screening_prompt,
+            'extraction_prompt': self.extraction_prompt,
+            'extraction_fields': deepcopy(self.extraction_fields),
+            'llm_provider': self.llm_provider.get(),
+            'llm_model': self.llm_model.get(),
+            'two_stage_screening': self.two_stage.get(),
+            'stop_event': self.stop_event,
+            'advanced_config': deepcopy(self.advanced_config),
+            'include_subfolders': bool(self.advanced_config.get('include_subfolders', False)),
+        }
+        if self.llm_base_url.get():
+            self._processing_config['base_url'] = self.llm_base_url.get()
+        self.automation_instance = None
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.progress_var.set(0)
@@ -1509,6 +1600,7 @@ class SLRAutomationGUI:
         self._log(f"Started at {datetime.now():%H:%M:%S} | Provider: {self.llm_provider.get()} / {self.llm_model.get()}", "INFO")
 
         t = threading.Thread(target=self._run_processing, daemon=True)
+        self._processing_thread = t
         t.start()
 
     def _stop(self):
@@ -1519,53 +1611,50 @@ class SLRAutomationGUI:
             self._log("Stop requested — finishing current file…", "WARN")
 
     def _run_processing(self):
+        auto = None
+        monitor = None
+        done = threading.Event()
         try:
-            kwargs = {}
-            if self.llm_base_url.get():
-                kwargs['base_url'] = self.llm_base_url.get()
-
-            self.automation_instance = SystematicReviewAutomation(
-                api_key=self.api_key.get().strip(),
-                pdf_folder=self.pdf_folder.get(),
-                output_folder=self.output_folder.get(),
-                cache_enabled=self.cache_enabled.get(),
-                parallel_processing=self.parallel_proc.get(),
-                max_workers=self.max_workers.get(),
-                rate_limit_delay=self.rate_limit_delay.get(),
-                screening_prompt=self.screening_prompt,
-                extraction_prompt=self.extraction_prompt,
-                extraction_fields=self.extraction_fields,
-                llm_provider=self.llm_provider.get(),
-                llm_model=self.llm_model.get(),
-                two_stage_screening=self.two_stage.get(),
-                stop_event=self.stop_event,
-                advanced_config=self.advanced_config,
-                include_subfolders=bool(self.advanced_config.get('include_subfolders', False)),
-                **kwargs,
-            )
+            auto = SystematicReviewAutomation(**self._processing_config)
+            self.automation_instance = auto
 
             # Start progress monitor thread
-            monitor = threading.Thread(target=self._monitor_progress, daemon=True)
+            monitor = threading.Thread(target=self._monitor_progress, args=(auto, done), daemon=True, name='slr-progress')
             monitor.start()
 
-            results = self.automation_instance.process_pdfs()
+            results = auto.process_pdfs()
 
             self.message_queue.put(("results", results))
         except Exception as e:
             self.message_queue.put(("error", str(e), traceback.format_exc()))
         finally:
+            done.set()
+            if monitor is not None:
+                monitor.join()
+            closer = getattr(auto, 'close', None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:
+                    self.message_queue.put(('error', 'Resource cleanup failed'))
             self.message_queue.put(("finished", None))
 
-    def _monitor_progress(self):
-        while self.is_processing:
-            if self.automation_instance:
-                stats = self.automation_instance.stats.copy()
-                self.message_queue.put(("stats", stats))
-            time.sleep(1.5)
+    def _monitor_progress(self, auto, done):
+        while not done.is_set():
+            lock = getattr(auto, '_lock', None)
+            if lock is None:
+                stats = auto.stats.copy()
+            else:
+                with lock:
+                    stats = auto.stats.copy()
+            self.message_queue.put(("stats", stats))
+            done.wait(1.5)
 
     # ── Queue handler ────────────────────────────────────────────────────────
 
     def _check_queue(self):
+        if self._closing:
+            return
         try:
             while True:
                 msg = self.message_queue.get_nowait()
@@ -1643,6 +1732,8 @@ class SLRAutomationGUI:
                         f"{counts.get('Exclude', 0)} excluded, "
                         f"{counts.get('Flag for Human Review', 0)} flagged."
                     )
+                    if len(msg) > 2 and msg[2]:
+                        self._set_status(msg[2], 'ERR.TLabel')
 
                 elif kind == "conn_test":
                     _, ok, detail = msg
@@ -1657,7 +1748,7 @@ class SLRAutomationGUI:
 
         except queue.Empty:
             pass
-        self.root.after(150, self._check_queue)
+        self._queue_job = self.root.after(150, self._check_queue)
 
     def _update_stats(self, stats: dict):
         total     = stats.get('total_files', 0)
@@ -1706,14 +1797,20 @@ class SLRAutomationGUI:
         self.is_processing = False
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
-        self.progress_var.set(100)
-        self.lbl_eta.config(text="ETA: Done")
+        stats = getattr(self.automation_instance, 'stats', {})
+        total = stats.get('total_files', 0)
+        processed = stats.get('processed_files', 0)
+        self.progress_var.set(min(100, processed / total * 100) if total else 0)
+        stopped = self.stop_event.is_set()
+        self.lbl_eta.config(text="ETA: Stopped" if stopped else "ETA: Done")
         self._populate_results_tree()
         self._save_settings()   # auto-save after run
 
     def _show_results(self, results: dict):
-        self._set_status("Processing complete!", "OK.TLabel")
-        self._log(f"Completed at {datetime.now():%H:%M:%S}", "OK")
+        stopped = self.stop_event.is_set()
+        title = "Processing Stopped" if stopped else "Processing Complete"
+        self._set_status("Processing stopped; partial results saved." if stopped else "Processing complete!", "WARN.TLabel" if stopped else "OK.TLabel")
+        self._log(f"{title} at {datetime.now():%H:%M:%S}", "WARN" if stopped else "OK")
 
         p = results.get('prisma', {})
         s = results.get('statistics', {})
@@ -1729,9 +1826,9 @@ class SLRAutomationGUI:
             f"  Data Extracted:   {p.get('extracted', 0)}\n\n"
             f"Tokens used: {s.get('total_api_tokens', 0):,}\n"
             f"Time:        {s.get('total_processing_time', 0):.1f}s\n\n"
-            f"Results saved to:\n  {results.get('screening_excel', '')}"
+            f"Results saved to:\n  {results.get('screening_excel') or results.get('screening_csv', '')}"
         )
-        messagebox.showinfo("Processing Complete", msg)
+        messagebox.showinfo(title, msg)
         self.nb.select(self.tab_results)
 
     # ── Results tab ──────────────────────────────────────────────────────────
@@ -1898,12 +1995,12 @@ class SLRAutomationGUI:
                        lambda e: right_canvas.configure(scrollregion=right_canvas.bbox("all")))
 
             def _on_mousewheel(e):
-                right_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-            right_canvas.bind("<MouseWheel>", _on_mousewheel)
-            right_canvas.bind("<Enter>",
-                              lambda e: right_canvas.bind_all("<MouseWheel>", _on_mousewheel))
-            right_canvas.bind("<Leave>",
-                              lambda e: right_canvas.unbind_all("<MouseWheel>"))
+                widget = e.widget
+                while widget is not None and widget is not right_canvas:
+                    widget = getattr(widget, 'master', None)
+                if widget is right_canvas:
+                    right_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+            win.bind("<MouseWheel>", _on_mousewheel)
 
             # Build field rows: detect Quote-Then-Answer pairs (_quote sibling)
             base_fields  = [k for k in fields if not k.endswith("_quote")]
@@ -2038,8 +2135,8 @@ class SLRAutomationGUI:
             'two_stage':         self.two_stage.get(),
             'llm_provider':      self.llm_provider.get(),
             'llm_model':         self.llm_model.get(),
-            'llm_base_url':      self.llm_base_url.get(),
-            'advanced_config':   self.advanced_config,
+            'llm_base_url':      redact_url(self.llm_base_url.get()),
+            'advanced_config':   redact_settings(self.advanced_config),
             'screening_prompt':  self.screening_prompt,
             'extraction_prompt': self.extraction_prompt,
             'extraction_fields': self.extraction_fields,
@@ -2054,7 +2151,7 @@ class SLRAutomationGUI:
                     provider,
                     self.api_key.get().strip(),
                 )
-            with open(dest, 'w', encoding='utf-8') as f:
+            with atomic_open(dest, 'w', encoding='utf-8') as f:
                 json.dump(self._settings_dict(), f, indent=2)
             if path:
                 messagebox.showinfo("Saved", f"Settings saved to:\n{path}")

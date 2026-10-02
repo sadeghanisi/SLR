@@ -144,10 +144,11 @@ def workspace_run_name() -> str:
 
 
 def workspace_processing_paths(handle, run_name: str) -> dict[str, Path]:
+    workspace_store.validate_workspace_root(handle.root)
     paths = {
         "output_folder": handle.root / "exports" / run_name,
-        "cache_folder": handle.root / "cache" / run_name,
-        "text_cache_folder": handle.root / "cache" / "text_cache" / run_name,
+        "cache_folder": handle.root / "cache" / "llm",
+        "text_cache_folder": handle.root / "cache" / "text_cache",
         "audit_ledger": handle.root / "audit" / f"{run_name}.jsonl",
     }
     for key, path in paths.items():

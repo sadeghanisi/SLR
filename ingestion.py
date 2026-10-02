@@ -17,6 +17,8 @@ export_records_to_csv(records, path)
 
 import re
 import csv
+from atomic_files import atomic_open, atomic_output
+from spreadsheet_safety import csv_row, literal_workbook
 import json
 import time
 import threading
@@ -26,6 +28,7 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 from pathlib import Path
 import logging
 from version import VERSION as __version__
+from llm_interface import LLMCallError, is_retryable_llm_error
 
 logger = logging.getLogger("SLR_Ingestion")
 
@@ -148,9 +151,16 @@ def _parse_bib(path: str) -> List[Dict]:
 
     try:
         import bibtexparser
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            db = bibtexparser.load(fh)
-        for e in db.entries:
+        if hasattr(bibtexparser, "load"):
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                entries = bibtexparser.load(fh).entries
+        else:
+            library = bibtexparser.parse_file(str(path), encoding="utf-8")
+            entries = [
+                {key: value.value for key, value in entry.fields_dict.items()}
+                for entry in library.entries
+            ]
+        for e in entries:
             r = _empty_record()
             r["source_file"] = fname
             r["title"]    = _clean_bib(e.get("title", ""))
@@ -219,10 +229,10 @@ def _parse_csv_file(path: str) -> List[Dict]:
     """
     import pandas as pd
     fname = Path(path).name
-    df    = pd.read_csv(path, encoding="utf-8", on_bad_lines="skip")
+    df = pd.read_csv(path, encoding="utf-8", dtype=str, keep_default_na=False)
 
     # Case-insensitive column map
-    col_map = {c.lower(): c for c in df.columns}
+    col_map = {c.strip().lower(): c for c in df.columns}
 
     def _col(name: str) -> str:
         """Return actual column name for a lowercase alias, or ''."""
@@ -262,17 +272,29 @@ def parse_references(path: str) -> List[Dict]:
     """
     ext = Path(path).suffix.lower()
     if ext in (".ris", ".txt"):
-        return _parse_ris(path)
+        records = _parse_ris(path)
     elif ext in (".bib",):
-        return _parse_bib(path)
+        records = _parse_bib(path)
     elif ext == ".csv":
-        return _parse_csv_file(path)
+        records = _parse_csv_file(path)
     else:
         # Try RIS as default
         try:
-            return _parse_ris(path)
+            records = _parse_ris(path)
         except Exception:
             raise ValueError(f"Unsupported file format: {ext}")
+    # Treeview row IDs and result joins must remain unique even before dedup.
+    used = set()
+    for record in records:
+        base = record["record_id"]
+        candidate = base
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        record["record_id"] = candidate
+        used.add(candidate)
+    return records
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -323,21 +345,23 @@ def deduplicate(records: List[Dict], fuzzy_threshold: int = 90) -> Tuple[List[Di
         return pass1, stats
 
     kept: List[Dict] = []
-    seen_titles: List[str] = []
+    seen_titles: List[Tuple[str, str]] = []
 
     for r in pass1:
         title = _normalise_title(r.get("title", ""))
+        doi = (r.get("doi") or "").strip().lower()
         if not title:
             kept.append(r)
             continue
         is_dup = any(
-            fuzz.token_sort_ratio(title, t) >= fuzzy_threshold
-            for t in seen_titles
+            (not doi or not other_doi or doi == other_doi)
+            and fuzz.token_sort_ratio(title, t) >= fuzzy_threshold
+            for t, other_doi in seen_titles
         )
         if is_dup:
             stats.removed_fuzzy += 1
         else:
-            seen_titles.append(title)
+            seen_titles.append((title, doi))
             kept.append(r)
 
     stats.total_after = len(kept)
@@ -467,7 +491,10 @@ class AbstractScreener:
                                                rationale="Stopped by user")
             try:
                 text, tokens = self.llm.chat_completion_with_tokens(
-                    messages, temperature=0.05, max_tokens=300
+                    messages, temperature=0.05, max_tokens=300,
+                    retry_max_attempts=self.max_retries,
+                    retry_delay=self.retry_delay,
+                    retry_stop_event=self._stop,
                 )
                 data = _parse_screening_json(text)
                 decision = _normalise_decision(data.get("decision", ""))
@@ -484,7 +511,9 @@ class AbstractScreener:
                 err = str(exc).lower()
                 is_rate = any(x in err for x in ("rate limit", "429", "too many"))
                 wait = (2 ** attempt) * (self.retry_delay * (3 if is_rate else 1))
-                if attempt < self.max_retries - 1:
+                if (attempt < self.max_retries - 1
+                        and not isinstance(exc, LLMCallError)
+                        and is_retryable_llm_error(exc)):
                     if self._stop.wait(wait):
                         return AbstractScreeningResult(
                             record_id=rid, title=title,
@@ -493,7 +522,7 @@ class AbstractScreener:
                 else:
                     return AbstractScreeningResult(
                         record_id=rid, title=title,
-                        decision=DECISION_ERROR, rationale=str(exc),
+                        decision=DECISION_ERROR, rationale="LLM screening failed; check provider configuration or response format.",
                         proc_time=time.time() - start,
                     )
 
@@ -503,30 +532,39 @@ class AbstractScreener:
 
 
 def _parse_screening_json(raw: str) -> Dict:
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("Empty screening response")
     cleaned = re.sub(r'```(?:json)?', '', raw, flags=re.IGNORECASE)
     cleaned = re.sub(r'```', '', cleaned).strip()
     try:
-        return json.loads(cleaned)
+        data = json.loads(cleaned)
+        if not isinstance(data, dict):
+            raise ValueError("Screening response must be an object")
+        return data
     except json.JSONDecodeError:
         pass
     m = re.search(r'\{.*\}', cleaned, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group())
+            data = json.loads(m.group())
+            if not isinstance(data, dict):
+                raise ValueError("Screening response must be an object")
+            return data
         except json.JSONDecodeError:
             pass
-    return {"decision": DECISION_FLAG, "rationale": raw[:300], "confidence": "Low"}
+    raise ValueError("Could not parse screening response as JSON")
 
 
 def _normalise_decision(raw: str) -> str:
-    raw = (raw or "").strip().lower()
-    if "exclude" in raw:
-        return DECISION_EXCLUDE
-    if "include" in raw and "exclude" not in raw:
-        return DECISION_INCLUDE
-    if "flag" in raw or "human" in raw:
-        return DECISION_FLAG
-    return DECISION_FLAG
+    decisions = {
+        "include": DECISION_INCLUDE, "likely include": DECISION_INCLUDE,
+        "exclude": DECISION_EXCLUDE, "likely exclude": DECISION_EXCLUDE,
+        "flag": DECISION_FLAG, "flag for review": DECISION_FLAG,
+        "flag for human review": DECISION_FLAG,
+    }
+    if not isinstance(raw, str) or raw.strip().lower() not in decisions:
+        raise ValueError("Unsupported screening decision")
+    return decisions[raw.strip().lower()]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -557,10 +595,10 @@ EXPORT_COLUMNS = [
 
 def export_records_to_csv(records: List[Dict], results: List[AbstractScreeningResult], path: str):
     merged = _records_with_screening(records, results)
-    with open(path, "w", newline="", encoding="utf-8") as fh:
+    with atomic_open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(merged)
+        writer.writerows(csv_row(row) for row in merged)
 
 
 def export_records_to_excel(
@@ -569,6 +607,11 @@ def export_records_to_excel(
     path:     str,
     stats:    Optional[DeduplicationStats] = None,
 ):
+    with atomic_output(path) as temporary:
+        _export_records_excel(records, results, temporary, stats)
+
+
+def _export_records_excel(records, results, path, stats):
     try:
         import pandas as pd
         from openpyxl import load_workbook
@@ -654,4 +697,6 @@ def export_records_to_excel(
         ws2.column_dimensions["A"].width = 42
         ws2.column_dimensions["B"].width = 12
 
+    literal_workbook(wb)
     wb.save(path)
+    wb.close()

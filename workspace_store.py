@@ -14,7 +14,11 @@ import re
 import shutil
 import sqlite3
 import uuid
-from contextlib import contextmanager
+import os
+from atomic_files import atomic_write_text
+from url_privacy import redact_url
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -26,7 +30,8 @@ except Exception:  # pragma: no cover - defensive for standalone use
     VERSION = "unknown"
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
+_READ_SNAPSHOT = ContextVar('workspace_read_snapshot', default=None)
 DATABASE_NAME = "workspace.sqlite3"
 WORKSPACE_JSON = "workspace.json"
 WORKSPACE_SUBDIRS = ("imports", "pdfs", "exports", "cache", "audit")
@@ -73,6 +78,8 @@ SECRET_KEY_PARTS = (
     "token",
     "password",
     "credential",
+    "authorization",
+    "cookie",
     "prompt",
     "full_text",
     "paper_text",
@@ -85,6 +92,21 @@ SAFE_METADATA_KEYS = {"cache_key"}
 REVIEW_STAGE_TITLE_ABSTRACT = "title_abstract"
 REVIEW_STAGE_FULL_TEXT = "full_text"
 REVIEW_STAGES = {REVIEW_STAGE_TITLE_ABSTRACT, REVIEW_STAGE_FULL_TEXT}
+
+# Review identity is independent of the nullable link to a currently live PDF.
+REFERENCE_SCOPE = "reference"
+_REVIEW_SCOPE_COLUMNS = """
+    ri.scope_key,
+    CASE WHEN ri.scope_key = 'reference' THEN 'reference'
+         WHEN substr(ri.scope_key, 1, 4) = 'pdf:' THEN 'pdf'
+         ELSE 'legacy_unknown' END AS scope_type,
+    ps.pdf_id AS original_pdf_id,
+    CASE WHEN ri.scope_key = 'reference' THEN 'not_applicable'
+         WHEN p.pdf_id IS NOT NULL THEN 'available'
+         WHEN ps.pdf_id IS NOT NULL THEN 'deleted'
+         ELSE 'unknown' END AS pdf_state,
+    ps.deleted_at AS pdf_deleted_at
+"""
 
 REVIEW_STATUS_PENDING = "pending"
 REVIEW_STATUS_SUGGESTED = "suggested"
@@ -271,6 +293,13 @@ def migrate(root: str | Path) -> None:
     _ensure_subfolders(workspace_root)
 
     metadata = _load_workspace_json(workspace_root) if (workspace_root / WORKSPACE_JSON).exists() else {}
+    try:
+        if int(metadata.get('schema_version', 0)) > SCHEMA_VERSION:
+            raise WorkspaceError('Workspace uses a newer schema; upgrade the application')
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, WorkspaceError):
+            raise
+        raise WorkspaceError('Invalid workspace schema version') from exc
     if not metadata:
         now = utc_now()
         metadata = {
@@ -285,13 +314,26 @@ def migrate(root: str | Path) -> None:
         }
         _write_workspace_json(workspace_root, metadata)
 
-    with workspace_connection(workspace_root) as conn:
+    with _workspace_migration_connection(workspace_root, metadata) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
-        for statement in _schema_statements():
+        conn.execute('BEGIN IMMEDIATE')
+        statements = _schema_statements()
+        for statement in statements:
+            if 'CREATE INDEX' in statement or 'CREATE UNIQUE INDEX' in statement:
+                continue
             conn.execute(statement)
+        current_version = conn.execute('SELECT COALESCE(MAX(version), 0) FROM schema_migrations').fetchone()[0]
+        if current_version > SCHEMA_VERSION:
+            raise WorkspaceError('Workspace uses a newer schema; upgrade the application')
+        _seed_default_reviewer(conn)
+        _seed_default_exclusion_reasons(conn)
         _apply_record_origin_migration(conn)
         _apply_dedup_migration(conn)
         _apply_review_queue_migrations(conn)
+        _apply_review_scope_migration(conn)
+        for statement in statements:
+            if 'CREATE INDEX' in statement or 'CREATE UNIQUE INDEX' in statement:
+                conn.execute(statement)
         _seed_workspace_meta(conn, metadata)
         _seed_default_reviewer(conn)
         _seed_default_exclusion_reasons(conn)
@@ -323,10 +365,41 @@ def migrate(root: str | Path) -> None:
             """,
             (4, "phase_4_dedup_state_schema", utc_now()),
         )
+        if current_version < 5 and conn.execute('PRAGMA foreign_key_check').fetchall():
+            raise WorkspaceError('Review scope migration failed foreign-key validation')
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)",
+            (5, "persistent_pdf_review_scopes", utc_now()),
+        )
 
-    metadata["schema_version"] = SCHEMA_VERSION
-    metadata["updated_at"] = utc_now()
-    _write_workspace_json(workspace_root, metadata)
+
+@contextmanager
+def _workspace_migration_connection(root: Path, metadata: dict[str, Any]):
+    """Publish metadata before SQL commit, retaining its old bytes for recovery."""
+    metadata_path = root / WORKSPACE_JSON
+    backup = metadata_path.with_name(metadata_path.name + '.' + uuid.uuid4().hex + '.migration-backup')
+    shutil.copy2(metadata_path, backup)
+    succeeded = False
+    try:
+        with workspace_connection(root) as conn:
+            yield conn
+            metadata['schema_version'] = SCHEMA_VERSION
+            metadata['updated_at'] = utc_now()
+            _write_workspace_json(root, metadata)
+        succeeded = True
+    except BaseException:
+        # SQL has rolled back before restoring the companion metadata. If the
+        # restoration itself fails, leave the recoverable original backup intact.
+        backup.replace(metadata_path)
+        raise
+    finally:
+        if succeeded:
+            try:
+                backup.unlink(missing_ok=True)
+            except OSError:
+                # Both stores are committed. An obsolete, recoverable backup
+                # must not make a completed upgrade appear to have failed.
+                pass
 
 
 def connect(root: str | Path) -> sqlite3.Connection:
@@ -339,12 +412,30 @@ def connect(root: str | Path) -> sqlite3.Connection:
 
 @contextmanager
 def workspace_connection(root: str | Path) -> Iterator[sqlite3.Connection]:
+    snapshot = _READ_SNAPSHOT.get()
+    if snapshot is not None and Path(root).resolve() == snapshot[0]:
+        yield snapshot[1]
+        return
     conn = connect(root)
     try:
         with conn:
             yield conn
     finally:
         conn.close()
+
+
+@contextmanager
+def workspace_read_snapshot(root: str | Path):
+    """Keep related reporting queries on a single read-only SQLite snapshot."""
+    workspace_root = validate_workspace_root(root)
+    with workspace_connection(workspace_root) as conn:
+        conn.execute('PRAGMA query_only = ON')
+        conn.execute('BEGIN')
+        token = _READ_SNAPSHOT.set((workspace_root.resolve(), conn))
+        try:
+            yield
+        finally:
+            _READ_SNAPSHOT.reset(token)
 
 
 def default_workspaces_root() -> Path:
@@ -419,6 +510,13 @@ def validate_workspace_root(root: str | Path) -> Path:
         pass
     if workspace_root.exists() and not workspace_root.is_dir():
         raise UnsafeWorkspacePath("Workspace path must be a folder")
+    # Resolving a subfolder against itself accepts an external junction/symlink.
+    # Validate against the actual workspace boundary before any read or write.
+    for name in (*WORKSPACE_SUBDIRS, WORKSPACE_JSON, DATABASE_NAME):
+        try:
+            (workspace_root / name).resolve().relative_to(workspace_root)
+        except ValueError as exc:
+            raise UnsafeWorkspacePath('Workspace component points outside the workspace') from exc
     return workspace_root
 
 
@@ -435,6 +533,8 @@ def resolve_workspace_relative_path(
     target = (workspace_root / clean_relative).resolve()
     base = (workspace_root / subdir).resolve() if subdir else workspace_root.resolve()
     try:
+        target.relative_to(workspace_root)
+        base.relative_to(workspace_root)
         target.relative_to(base)
     except ValueError as exc:
         raise UnsafeWorkspacePath("Path is outside the workspace") from exc
@@ -611,17 +711,20 @@ def apply_reference_deduplication(root: str | Path, *, fuzzy_threshold: int = 90
                 doi_canonicals[doi] = record_id
             pass1.append(record)
 
-        kept_for_fuzzy: list[tuple[str, str]] = []
+        kept_for_fuzzy: list[tuple[str, str, str]] = []
         for record in pass1:
             record_id = record["record_id"]
             title = _dedup_title(record.get("title"))
+            doi = _dedup_doi(record.get('doi'))
             if not title:
-                kept_for_fuzzy.append((record_id, title))
+                kept_for_fuzzy.append((record_id, title, doi))
                 continue
             best_record_id = ""
             best_score = 0.0
-            for kept_record_id, kept_title in kept_for_fuzzy:
+            for kept_record_id, kept_title, kept_doi in kept_for_fuzzy:
                 if not kept_title:
+                    continue
+                if doi and kept_doi and doi != kept_doi:
                     continue
                 score = _dedup_title_score(title, kept_title)
                 if score > best_score:
@@ -634,7 +737,7 @@ def apply_reference_deduplication(root: str | Path, *, fuzzy_threshold: int = 90
                     "dedup_score": round(best_score, 2),
                 }
             else:
-                kept_for_fuzzy.append((record_id, title))
+                kept_for_fuzzy.append((record_id, title, doi))
 
         now = utc_now()
         conn.execute(
@@ -824,6 +927,7 @@ def register_pdf(
     display_name: str | None = None,
     record_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    _connection: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     workspace_root = validate_workspace_root(root)
     target = resolve_workspace_relative_path(
@@ -842,7 +946,7 @@ def register_pdf(
     size = target.stat().st_size
     digest = sha256_file(target)
 
-    with workspace_connection(workspace_root) as conn:
+    with (workspace_connection(workspace_root) if _connection is None else nullcontext(_connection)) as conn:
         conn.execute(
             """
             INSERT INTO pdfs(
@@ -863,6 +967,7 @@ def register_pdf(
                 json_dumps(_sanitize_metadata(metadata or {})),
             ),
         )
+        _retain_pdf_review_scopes(conn, pdf_id=pdf_id)
         _insert_audit_event(
             conn,
             event_type="pdf_uploaded",
@@ -895,21 +1000,62 @@ def list_pdf_metadata(root: str | Path) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+@contextmanager
+def _pdf_deletion_connection(root, targets):
+    """Keep recoverable copies until both file deletion and SQL commit succeed."""
+    backups = {}
+    succeeded = False
+    try:
+        for target in targets:
+            if not target.exists():
+                continue
+            backup = target.with_name(target.name + '.' + uuid.uuid4().hex + '.delete-backup')
+            backups[target] = backup
+            try:
+                os.link(target, backup)
+            except OSError:
+                shutil.copy2(target, backup)
+        with workspace_connection(root) as conn:
+            yield conn
+            for target in targets:
+                target.unlink(missing_ok=True)
+        succeeded = True
+    except BaseException as exc:
+        for target, backup in backups.items():
+            if not target.exists() and backup.exists():
+                backup.replace(target)
+        if isinstance(exc, sqlite3.IntegrityError) and 'idx_review_items_unique_scope' in str(exc):
+            raise WorkspaceError('PDF deletion conflicts with multiple review items for this record; files and decisions were kept') from exc
+        raise
+    finally:
+        for target, backup in backups.items():
+            if succeeded or target.exists():
+                backup.unlink(missing_ok=True)
+
+
 def delete_pdf(root: str | Path, relative_path: str) -> int:
     workspace_root = validate_workspace_root(root)
     target = resolve_workspace_relative_path(
         workspace_root,
         relative_path,
         subdir="pdfs",
-        must_exist=True,
+        must_exist=False,
         require_file=True,
     )
     relative = target.relative_to(workspace_root.resolve()).as_posix()
-    with workspace_connection(workspace_root) as conn:
+    with _pdf_deletion_connection(workspace_root, [target]) as conn:
         row = conn.execute(
             "SELECT pdf_id, record_id FROM pdfs WHERE relative_path = ?",
             (relative,),
         ).fetchone()
+        if row is None and not target.exists():
+            archived = conn.execute(
+                "SELECT 1 FROM pdf_review_scopes WHERE relative_path = ? AND deleted_at IS NOT NULL",
+                (relative,),
+            ).fetchone()
+            if not archived:
+                raise FileNotFoundError("Workspace PDF not found")
+            return int(conn.execute("SELECT COUNT(*) FROM pdfs").fetchone()[0])
         conn.execute("DELETE FROM pdfs WHERE relative_path = ?", (relative,))
         if row:
             if row["record_id"]:
@@ -936,25 +1082,16 @@ def delete_pdf(root: str | Path, relative_path: str) -> int:
                 metadata={"relative_path": relative, "record_id": row["record_id"]},
             )
         remaining = conn.execute("SELECT COUNT(*) AS count FROM pdfs").fetchone()["count"]
-    target.unlink(missing_ok=True)
     return int(remaining)
 
 
 def clear_pdfs(root: str | Path) -> None:
     workspace_root = validate_workspace_root(root)
-    for row in list_pdf_metadata(workspace_root):
-        try:
-            target = resolve_workspace_relative_path(
-                workspace_root,
-                row["relative_path"],
-                subdir="pdfs",
-                must_exist=True,
-                require_file=True,
-            )
-            target.unlink(missing_ok=True)
-        except (FileNotFoundError, UnsafeWorkspacePath):
-            pass
-    with workspace_connection(workspace_root) as conn:
+    targets = [
+        resolve_workspace_relative_path(workspace_root, row['relative_path'], subdir='pdfs', require_file=True)
+        for row in list_pdf_metadata(workspace_root)
+    ]
+    with _pdf_deletion_connection(workspace_root, targets) as conn:
         conn.execute(
             """
             UPDATE records
@@ -1060,6 +1197,9 @@ def get_workspace_summary(root: str | Path) -> dict[str, Any]:
             "duplicate_source_records": duplicate_source_records,
             "inactive_duplicate_records": inactive_duplicate_records,
             "pdfs": conn.execute("SELECT COUNT(*) AS count FROM pdfs").fetchone()["count"],
+            "deleted_pdf_scopes": conn.execute(
+                "SELECT COUNT(*) FROM pdf_review_scopes WHERE deleted_at IS NOT NULL"
+            ).fetchone()[0],
             "review_items": conn.execute(
                 """
                 SELECT COUNT(*) AS count
@@ -1169,7 +1309,7 @@ def create_automation_run(
                 AUTOMATION_RUN_STATUS_RUNNING,
                 _bounded_text(provider, limit=200),
                 _bounded_text(model, limit=200),
-                _bounded_text(base_url, limit=500),
+                _bounded_text(redact_url(base_url), limit=500),
                 int(input_count or 0),
                 json_dumps(_sanitize_metadata(metadata or {})),
             ),
@@ -1293,16 +1433,18 @@ def get_review_queue(
             f"""
             SELECT
                 ri.item_id, ri.record_id, ri.pdf_id, ri.stage, ri.status,
+                {_REVIEW_SCOPE_COLUMNS},
                 ri.created_at, ri.updated_at, ri.metadata_json,
                 r.title, r.authors, r.year, r.journal, r.doi, r.source_file,
                 r.record_origin, r.is_active_for_screening,
                 r.duplicate_of_record_id, r.dedup_method, r.dedup_score,
                 p.relative_path AS pdf_relative_path,
-                p.original_filename AS pdf_original_filename,
-                p.display_name AS pdf_display_name
+                COALESCE(p.original_filename, ps.original_filename) AS pdf_original_filename,
+                COALESCE(p.display_name, ps.display_name) AS pdf_display_name
             FROM review_items ri
             JOIN records r ON r.record_id = ri.record_id
             LEFT JOIN pdfs p ON p.pdf_id = ri.pdf_id
+            LEFT JOIN pdf_review_scopes ps ON ps.pdf_id = substr(ri.scope_key, 5) AND substr(ri.scope_key, 1, 4) = 'pdf:'
             {where_sql}
             ORDER BY
                 CASE ri.status
@@ -1620,20 +1762,22 @@ def get_exportable_screening_rows(root: str | Path) -> list[dict[str, Any]]:
         sources_by_record = {row["record_id"]: dict(row) for row in source_rows}
 
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 r.record_id, r.title, r.authors, r.year, r.journal, r.doi,
                 r.source_file, r.record_origin, r.is_active_for_screening,
                 r.duplicate_of_record_id, r.dedup_method, r.dedup_score,
                 ri.item_id, ri.pdf_id, ri.stage, ri.status AS current_status,
+                {_REVIEW_SCOPE_COLUMNS},
                 ri.created_at AS review_item_created_at,
                 ri.updated_at AS review_item_updated_at,
-                p.display_name AS pdf_display_name,
-                p.original_filename AS pdf_original_filename,
+                COALESCE(p.display_name, ps.display_name) AS pdf_display_name,
+                COALESCE(p.original_filename, ps.original_filename) AS pdf_original_filename,
                 p.relative_path AS pdf_relative_path
             FROM records r
             LEFT JOIN review_items ri ON ri.record_id = r.record_id
             LEFT JOIN pdfs p ON p.pdf_id = ri.pdf_id
+            LEFT JOIN pdf_review_scopes ps ON ps.pdf_id = substr(ri.scope_key, 5) AND substr(ri.scope_key, 1, 4) = 'pdf:'
             ORDER BY
                 r.is_active_for_screening DESC,
                 r.record_origin,
@@ -1661,8 +1805,8 @@ def get_exportable_screening_rows(root: str | Path) -> list[dict[str, Any]]:
                 ).fetchone()
                 reason_label = reason["label"] if reason else latest_human["exclusion_reason_id"]
 
-            duplicate_of = item.get("duplicate_of_record_id") or source.get("source_duplicate_of_record_id") or ""
-            duplicate_status = DEDUP_STATUS_DUPLICATE if duplicate_of or source.get("has_duplicate_source") else DEDUP_STATUS_UNIQUE
+            duplicate_of = item.get("duplicate_of_record_id") or ""
+            duplicate_status = DEDUP_STATUS_DUPLICATE if duplicate_of else DEDUP_STATUS_UNIQUE
             decision_timestamp = ""
             final_source = "none"
             if latest_human:
@@ -1687,6 +1831,13 @@ def get_exportable_screening_rows(root: str | Path) -> list[dict[str, Any]]:
                 "dedup_method": item.get("dedup_method") or source.get("source_dedup_method") or "",
                 "dedup_score": item.get("dedup_score") if item.get("dedup_score") is not None else source.get("source_dedup_score"),
                 "stage": item.get("stage") or "",
+                "review_item_id": item.get("item_id") or "",
+                "scope_key": item.get("scope_key") or "",
+                "scope_type": item.get("scope_type") if item.get("item_id") else "",
+                "original_pdf_id": item.get("original_pdf_id") or "",
+                "pdf_id": item.get("pdf_id") or "",
+                "pdf_state": item.get("pdf_state") if item.get("item_id") else "not_applicable",
+                "pdf_deleted_at": item.get("pdf_deleted_at") or "",
                 "current_status": item.get("current_status") or "not_started",
                 "ai_suggestion": latest_ai.get("decision", "") if latest_ai else "",
                 "ai_rationale": latest_ai.get("rationale", "") if latest_ai else "",
@@ -1720,15 +1871,17 @@ def get_decision_export_rows(root: str | Path, *, actor_type: str | None = None)
                 d.provider, d.model, d.prompt_hash, d.text_hash, d.cache_key,
                 d.automation_run_id, d.created_at,
                 ri.record_id, ri.pdf_id, ri.stage, ri.status AS current_status,
+                {_REVIEW_SCOPE_COLUMNS},
                 r.title, r.authors, r.year, r.journal, r.doi, r.record_origin,
                 r.is_active_for_screening, r.duplicate_of_record_id,
                 r.dedup_method, r.dedup_score,
-                p.display_name AS pdf_display_name
+                COALESCE(p.display_name, ps.display_name) AS pdf_display_name
             FROM decisions d
             JOIN review_items ri ON ri.item_id = d.review_item_id
             JOIN records r ON r.record_id = ri.record_id
             LEFT JOIN exclusion_reasons er ON er.reason_id = d.exclusion_reason_id
             LEFT JOIN pdfs p ON p.pdf_id = ri.pdf_id
+            LEFT JOIN pdf_review_scopes ps ON ps.pdf_id = substr(ri.scope_key, 5) AND substr(ri.scope_key, 1, 4) = 'pdf:'
             {where_sql}
             ORDER BY d.created_at, d.rowid
             """,
@@ -1740,23 +1893,31 @@ def get_decision_export_rows(root: str | Path, *, actor_type: str | None = None)
 def get_full_text_exclusion_rows(root: str | Path) -> list[dict[str, Any]]:
     with workspace_connection(root) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 d.decision_id, d.review_item_id, d.reviewer_id, d.decision,
                 d.rationale, d.exclusion_reason_id,
                 er.label AS exclusion_reason,
                 d.created_at AS decision_timestamp,
                 ri.record_id, ri.pdf_id, ri.stage, ri.status AS current_status,
+                {_REVIEW_SCOPE_COLUMNS},
                 r.title, r.authors, r.year, r.journal, r.doi, r.record_origin,
-                p.display_name AS pdf_display_name
+                COALESCE(p.display_name, ps.display_name) AS pdf_display_name
             FROM decisions d
             JOIN review_items ri ON ri.item_id = d.review_item_id
             JOIN records r ON r.record_id = ri.record_id
             LEFT JOIN exclusion_reasons er ON er.reason_id = d.exclusion_reason_id
             LEFT JOIN pdfs p ON p.pdf_id = ri.pdf_id
+            LEFT JOIN pdf_review_scopes ps ON ps.pdf_id = substr(ri.scope_key, 5) AND substr(ri.scope_key, 1, 4) = 'pdf:'
             WHERE d.actor_type = ?
               AND d.decision = ?
               AND ri.stage = ?
+              AND r.is_active_for_screening = 1
+              AND d.rowid = (
+                  SELECT latest.rowid FROM decisions latest
+                  WHERE latest.review_item_id = d.review_item_id AND latest.actor_type = 'human'
+                  ORDER BY latest.created_at DESC, latest.rowid DESC LIMIT 1
+              )
             ORDER BY d.created_at, d.rowid
             """,
             (ACTOR_HUMAN, DECISION_EXCLUDE, REVIEW_STAGE_FULL_TEXT),
@@ -1786,6 +1947,11 @@ def get_prisma_ready_counts(root: str | Path) -> dict[str, Any]:
                   AND d.decision = ?
                   AND ri.stage = ?
                   AND r.is_active_for_screening = 1
+                  AND d.rowid = (
+                      SELECT latest.rowid FROM decisions latest
+                      WHERE latest.review_item_id = d.review_item_id AND latest.actor_type = 'human'
+                      ORDER BY latest.created_at DESC, latest.rowid DESC LIMIT 1
+                  )
                 GROUP BY d.exclusion_reason_id, er.label
                 ORDER BY er.sort_order, er.label COLLATE NOCASE
                 """,
@@ -1865,6 +2031,10 @@ def get_prisma_ready_counts(root: str | Path) -> dict[str, Any]:
         "total_active_review_items": _available_count(
             counts.get("review_items", 0),
             "Review items joined to active records.",
+        ),
+        "deleted_pdf_scopes": _available_count(
+            counts.get('deleted_pdf_scopes', 0),
+            "Historical PDF identities retained after deletion; these are not currently available PDFs.",
         ),
         "title_abstract_pending": _available_count(
             stage_status.get(REVIEW_STAGE_TITLE_ABSTRACT, {}).get(REVIEW_STATUS_PENDING, 0),
@@ -2160,6 +2330,19 @@ def _schema_statements() -> list[str]:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS pdf_review_scopes (
+            pdf_id TEXT PRIMARY KEY NOT NULL,
+            relative_path TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            sha256 TEXT NOT NULL,
+            uploaded_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            deleted_at TEXT
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS exclusion_reasons (
             reason_id TEXT PRIMARY KEY,
             label TEXT NOT NULL,
@@ -2202,6 +2385,7 @@ def _schema_statements() -> list[str]:
             item_id TEXT PRIMARY KEY,
             record_id TEXT NOT NULL,
             pdf_id TEXT,
+            scope_key TEXT NOT NULL DEFAULT 'reference' CHECK (length(scope_key) > 0),
             stage TEXT NOT NULL DEFAULT 'title_abstract',
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
@@ -2275,10 +2459,11 @@ def _schema_statements() -> list[str]:
         "CREATE INDEX IF NOT EXISTS idx_records_doi ON records(doi)",
         "CREATE INDEX IF NOT EXISTS idx_record_sources_source ON record_sources(source_id)",
         "CREATE INDEX IF NOT EXISTS idx_pdfs_record ON pdfs(record_id)",
+        "CREATE INDEX IF NOT EXISTS idx_pdf_review_scopes_path ON pdf_review_scopes(relative_path)",
         "CREATE INDEX IF NOT EXISTS idx_review_items_record ON review_items(record_id)",
         "CREATE INDEX IF NOT EXISTS idx_review_items_pdf ON review_items(pdf_id)",
         "CREATE INDEX IF NOT EXISTS idx_review_items_status ON review_items(stage, status)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_review_items_unique_scope ON review_items(record_id, stage, COALESCE(pdf_id, ''))",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_review_items_unique_scope ON review_items(record_id, stage, scope_key)",
         "CREATE INDEX IF NOT EXISTS idx_decisions_item_created ON decisions(review_item_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_decisions_actor ON decisions(actor_type, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_audit_events_type ON audit_events(event_type, occurred_at)",
@@ -2350,15 +2535,107 @@ def _apply_review_queue_migrations(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_review_items_pdf ON review_items(pdf_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_review_items_status ON review_items(stage, status)")
     conn.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_review_items_unique_scope
-        ON review_items(record_id, stage, COALESCE(pdf_id, ''))
-        """
-    )
-    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_decisions_item_created ON decisions(review_item_id, created_at)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_decisions_actor ON decisions(actor_type, created_at)")
+
+
+def _retain_pdf_review_scopes(conn: sqlite3.Connection, *, pdf_id: str | None = None) -> None:
+    """Copy original PDF attribution once, in the same transaction as its live row."""
+    where = 'WHERE pdf_id = ?' if pdf_id is not None else ''
+    conn.execute(
+        f"""
+        INSERT OR IGNORE INTO pdf_review_scopes(
+            pdf_id, relative_path, original_filename, display_name, file_size,
+            sha256, uploaded_at, metadata_json
+        )
+        SELECT pdf_id, relative_path, original_filename, display_name, file_size,
+               sha256, uploaded_at, metadata_json
+        FROM pdfs {where}
+        """,
+        (pdf_id,) if pdf_id is not None else (),
+    )
+
+
+def _apply_review_scope_migration(conn: sqlite3.Connection) -> None:
+    """Replace nullable v4 scope identity without rebuilding items or decisions."""
+    _retain_pdf_review_scopes(conn)
+    if 'scope_key' not in _table_columns(conn, 'review_items'):
+        conn.execute(
+            "ALTER TABLE review_items ADD COLUMN scope_key TEXT NOT NULL "
+            "DEFAULT 'reference' CHECK (length(scope_key) > 0)"
+        )
+        conn.execute("UPDATE review_items SET scope_key = 'pdf:' || pdf_id WHERE pdf_id IS NOT NULL")
+
+        # v4 erased attribution on a successful single-PDF delete. Audit evidence
+        # cannot always tell a surviving NULL PDF review from a reference review.
+        # Keep uncertain history distinct; never guess a replacement PDF identity.
+        deletions = conn.execute(
+            "SELECT event_type, occurred_at, metadata_json FROM audit_events "
+            "WHERE event_type IN ('pdf_deleted', 'pdfs_cleared')"
+        ).fetchall()
+        for event in deletions:
+            metadata = json.loads(event['metadata_json'])
+            if event['event_type'] == 'pdfs_cleared':
+                conn.execute(
+                    "UPDATE review_items SET scope_key = 'legacy:' || item_id "
+                    "WHERE pdf_id IS NULL AND created_at <= ?",
+                    (event['occurred_at'],),
+                )
+            elif metadata.get('record_id'):
+                conn.execute(
+                    "UPDATE review_items SET scope_key = 'legacy:' || item_id "
+                    "WHERE pdf_id IS NULL AND record_id = ? AND created_at <= ?",
+                    (metadata['record_id'], event['occurred_at']),
+                )
+        conn.execute('DROP INDEX IF EXISTS idx_review_items_unique_scope')
+
+    # Scope validation works for upgraded tables too: ALTER TABLE cannot add a
+    # cross-table CHECK, and a nullable live PDF foreign key is not an identity.
+    valid_scope = """
+        (NEW.scope_key = 'reference' AND NEW.pdf_id IS NULL)
+        OR (NEW.scope_key = 'legacy:' || NEW.item_id AND NEW.pdf_id IS NULL)
+        OR EXISTS (
+            SELECT 1 FROM pdf_review_scopes ps
+            WHERE ps.pdf_id = substr(NEW.scope_key, 5) AND NEW.scope_key = 'pdf:' || ps.pdf_id
+              AND (NEW.pdf_id = ps.pdf_id
+                   OR (NEW.pdf_id IS NULL AND ps.deleted_at IS NOT NULL))
+        )
+    """
+    for operation in ('INSERT', 'UPDATE OF scope_key, pdf_id, item_id'):
+        name = 'insert' if operation == 'INSERT' else 'update'
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS review_scope_validate_{name}
+            BEFORE {operation} ON review_items
+            WHEN NOT ({valid_scope})
+            BEGIN SELECT RAISE(ABORT, 'Invalid persistent review scope'); END
+        """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS review_scope_identity_immutable
+        BEFORE UPDATE OF scope_key, item_id, record_id, stage ON review_items
+        WHEN NEW.scope_key IS NOT OLD.scope_key OR NEW.item_id IS NOT OLD.item_id
+          OR NEW.record_id IS NOT OLD.record_id OR NEW.stage IS NOT OLD.stage
+        BEGIN SELECT RAISE(ABORT, 'Review scope identity is immutable'); END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS pdf_scope_archive_before_delete
+        BEFORE DELETE ON pdfs
+        BEGIN
+            UPDATE pdf_review_scopes
+            SET deleted_at = COALESCE(deleted_at, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            WHERE pdf_id = OLD.pdf_id;
+        END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS pdf_scope_preserve_delete
+        BEFORE DELETE ON pdf_review_scopes
+        BEGIN SELECT RAISE(ABORT, 'PDF review scope is persistent'); END
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS pdf_scope_preserve_identity
+        BEFORE UPDATE OF pdf_id ON pdf_review_scopes WHEN NEW.pdf_id IS NOT OLD.pdf_id
+        BEGIN SELECT RAISE(ABORT, 'PDF review scope identity is immutable'); END
+    """)
 
 
 def _apply_record_origin_migration(conn: sqlite3.Connection) -> None:
@@ -2543,34 +2820,25 @@ def _create_review_item_row(
     pdf = _text(pdf_id).strip() or None
     now = created_at or utc_now()
 
-    if pdf is None:
-        existing = conn.execute(
-            """
-            SELECT item_id FROM review_items
-            WHERE record_id = ? AND stage = ? AND pdf_id IS NULL
-            """,
-            (record, stage_value),
-        ).fetchone()
-    else:
-        existing = conn.execute(
-            """
-            SELECT item_id FROM review_items
-            WHERE record_id = ? AND stage = ? AND pdf_id = ?
-            """,
-            (record, stage_value, pdf),
-        ).fetchone()
+    scope_key = f'pdf:{pdf}' if pdf else REFERENCE_SCOPE
+    existing = conn.execute(
+        "SELECT item_id FROM review_items WHERE record_id = ? AND stage = ? AND scope_key = ?",
+        (record, stage_value, scope_key),
+    ).fetchone()
     if existing:
         return existing["item_id"]
+    if pdf and not conn.execute('SELECT 1 FROM pdfs WHERE pdf_id = ?', (pdf,)).fetchone():
+        raise WorkspaceError('PDF is not currently available')
 
     item_id = uuid.uuid4().hex
     conn.execute(
         """
         INSERT INTO review_items(
-            item_id, record_id, pdf_id, stage, status, created_at, updated_at, metadata_json
+            item_id, record_id, pdf_id, scope_key, stage, status, created_at, updated_at, metadata_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (item_id, record, pdf, stage_value, REVIEW_STATUS_PENDING, now, now, "{}"),
+        (item_id, record, pdf, scope_key, stage_value, REVIEW_STATUS_PENDING, now, now, "{}"),
     )
     return item_id
 
@@ -2790,18 +3058,20 @@ def _recalculate_review_item_status(conn: sqlite3.Connection, review_item_id: st
 
 def _get_review_item_status(conn: sqlite3.Connection, review_item_id: str) -> dict[str, Any]:
     row = conn.execute(
-        """
+        f"""
         SELECT
             ri.item_id, ri.record_id, ri.pdf_id, ri.stage, ri.status,
+            {_REVIEW_SCOPE_COLUMNS},
             ri.created_at, ri.updated_at,
             r.title, r.authors, r.year, r.journal, r.doi,
             r.record_origin, r.is_active_for_screening,
             r.duplicate_of_record_id, r.dedup_method, r.dedup_score,
             p.relative_path AS pdf_relative_path,
-            p.display_name AS pdf_display_name
+            COALESCE(p.display_name, ps.display_name) AS pdf_display_name
         FROM review_items ri
         JOIN records r ON r.record_id = ri.record_id
         LEFT JOIN pdfs p ON p.pdf_id = ri.pdf_id
+        LEFT JOIN pdf_review_scopes ps ON ps.pdf_id = substr(ri.scope_key, 5) AND substr(ri.scope_key, 1, 4) = 'pdf:'
         WHERE ri.item_id = ?
         """,
         (_text(review_item_id).strip(),),
@@ -2975,7 +3245,7 @@ def _load_workspace_json(root: Path) -> dict[str, Any]:
 
 def _write_workspace_json(root: Path, metadata: dict[str, Any]) -> None:
     safe = _sanitize_metadata(metadata)
-    (root / WORKSPACE_JSON).write_text(
+    atomic_write_text(root / WORKSPACE_JSON,
         json.dumps(safe, indent=2, sort_keys=True, ensure_ascii=True),
         encoding="utf-8",
     )
@@ -3127,4 +3397,4 @@ def _sanitize_metadata(value: Any) -> Any:
         return [_sanitize_metadata(item) for item in value]
     if isinstance(value, tuple):
         return [_sanitize_metadata(item) for item in value]
-    return value
+    return redact_url(value)

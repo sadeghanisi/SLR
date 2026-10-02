@@ -7,9 +7,11 @@ their response shapes while path safety stays centralized.
 from __future__ import annotations
 
 import uuid
+import re
 from pathlib import Path
 
 from werkzeug.utils import secure_filename
+from werkzeug.http import parse_options_header
 
 
 def is_relative_to(path: Path, root: Path) -> bool:
@@ -77,13 +79,25 @@ def validate_upload_filename(filename: str, allowed_exts: set[str]) -> tuple[str
     if not safe_name or safe_name in {".", ".."}:
         raise ValueError("Invalid filename")
 
-    ext = Path(safe_name).suffix.lower()
+    # The stored name is generated. Preserve extensions on Unicode-only names,
+    # which secure_filename can reduce to just "pdf".
+    ext = Path(original).suffix.lower()
     if ext not in allowed_exts:
         raise ValueError(f"Unsupported format: {ext}")
     return original, ext
 
 
 def save_uploaded_file(file_storage, folder: Path, allowed_exts: set[str], max_size: int) -> dict:
+    # Werkzeug normalizes old IE/Windows filenames before FileStorage.filename.
+    # Inspect the multipart header as well to enforce the upload contract.
+    headers = getattr(file_storage, 'headers', {})
+    disposition = headers.get('Content-Disposition', '')
+    for raw_name in re.findall(r'(?:^|;)\s*filename\s*=\s*("[^"]*"|[^;]*)', disposition, flags=re.IGNORECASE):
+        if '/' in raw_name or '\\' in raw_name:
+            raise ValueError('Invalid filename')
+    submitted = parse_options_header(disposition)[1].get('filename')
+    if submitted:
+        validate_upload_filename(submitted, allowed_exts)
     original, ext = validate_upload_filename(file_storage.filename, allowed_exts)
     folder.mkdir(parents=True, exist_ok=True)
     server_filename = f"{uuid.uuid4().hex}{ext}"
@@ -91,11 +105,14 @@ def save_uploaded_file(file_storage, folder: Path, allowed_exts: set[str], max_s
     if not is_relative_to(dest, folder):
         raise ValueError("Invalid upload destination")
 
-    file_storage.save(str(dest))
-    size = dest.stat().st_size
-    if size > max_size:
+    try:
+        file_storage.save(str(dest))
+        size = dest.stat().st_size
+        if size > max_size:
+            raise ValueError(f"File is too large; limit is {max_size // (1024 * 1024)} MB")
+    except BaseException:
         dest.unlink(missing_ok=True)
-        raise ValueError(f"File is too large; limit is {max_size // (1024 * 1024)} MB")
+        raise
 
     return {
         "path": str(dest),
